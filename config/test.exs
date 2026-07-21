@@ -23,6 +23,8 @@ config :fleet_pulse, FleetPulseWeb.Endpoint,
 # In test we don't send emails
 config :fleet_pulse, FleetPulse.Mailer, adapter: Swoosh.Adapters.Test
 
+config :fleet_pulse, FleetPulse.Tracking.PersistenceBatcher, enabled: false
+
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
 

@@ -45,8 +45,8 @@ defmodule FleetPulse.Tracking.DriverState do
           required(:latitude) => Types.latitude(),
           required(:longitude) => Types.longitude(),
           required(:recorded_at) => DateTime.t(),
-          optional(:speed_kmh) => float(),
-          optional(:bearing_deg) => float()
+          optional(:speed_kmh) => float() | nil,
+          optional(:bearing_deg) => float() | nil
         }
 
   @enforce_keys [:driver_id]
@@ -77,14 +77,20 @@ defmodule FleetPulse.Tracking.DriverState do
   end
 
   @doc """
-  Writes a new position. Fire-and-forget; see the cast-vs-call note in the
-  module tests and design docs.
+  Writes a new position.
+
+  Telemetry is validated and normalised HERE, in the calling process, before
+  anything reaches the mailbox — the same discipline `update_status/2` uses.
+  This is the single choke point protecting the cache: `Repo.insert_all/3`
+  bypasses changesets entirely, so a bad value that reaches ETS would later
+  crash the persistence batcher on every retry, forever.
   """
-  @spec update_location(Types.id(), telemetry()) :: :ok | {:error, :not_found}
+  @spec update_location(Types.id(), telemetry()) ::
+          :ok | {:error, :not_found | :invalid_telemetry}
   def update_location(driver_id, telemetry) do
-    case DriverRegistry.whereis(driver_id) do
-      {:ok, pid} -> GenServer.cast(pid, {:update_location, telemetry})
-      {:error, :not_found} = error -> error
+    with {:ok, normalised} <- normalise(telemetry),
+         {:ok, pid} <- DriverRegistry.whereis(driver_id) do
+      GenServer.cast(pid, {:update_location, normalised})
     end
   end
 
@@ -108,6 +114,8 @@ defmodule FleetPulse.Tracking.DriverState do
   @impl GenServer
   @spec init(Types.id()) :: {:ok, t(), {:continue, :rehydrate}}
   def init(driver_id) do
+    Process.flag(:trap_exit, true)
+
     {:ok, %__MODULE__{driver_id: driver_id}, {:continue, :rehydrate}}
   end
 
@@ -152,6 +160,16 @@ defmodule FleetPulse.Tracking.DriverState do
     {:noreply, commit(%{state | status: status, synced_at: DateTime.utc_now()})}
   end
 
+  @impl GenServer
+  @spec terminate(term(), t()) :: :ok
+  def terminate(:normal, %__MODULE__{driver_id: driver_id}), do: StateCache.delete(driver_id)
+  def terminate(:shutdown, %__MODULE__{driver_id: driver_id}), do: StateCache.delete(driver_id)
+
+  def terminate({:shutdown, _reason}, %__MODULE__{driver_id: driver_id}),
+    do: StateCache.delete(driver_id)
+
+  def terminate(_crash_reason, _state), do: :ok
+
   @spec commit(t()) :: t()
   defp commit(%__MODULE__{} = state) do
     :ok = StateCache.put(state.driver_id, state)
@@ -169,4 +187,54 @@ defmodule FleetPulse.Tracking.DriverState do
         recorded_at: snapshot.recorded_at
     }
   end
+
+  @spec normalise(term()) :: {:ok, telemetry()} | {:error, :invalid_telemetry}
+  defp normalise(%{recorded_at: %DateTime{} = recorded_at} = telemetry) do
+    with {:ok, lat} <- validate_latitude(Map.get(telemetry, :latitude)),
+         {:ok, lng} <- validate_longitude(Map.get(telemetry, :longitude)),
+         {:ok, speed} <- validate_speed(Map.get(telemetry, :speed_kmh)),
+         {:ok, bearing} <- validate_bearing(Map.get(telemetry, :bearing_deg)) do
+      {:ok,
+       %{
+         latitude: lat,
+         longitude: lng,
+         speed_kmh: speed,
+         bearing_deg: bearing,
+         recorded_at: with_usec(recorded_at)
+       }}
+    end
+  end
+
+  defp normalise(_telemetry), do: {:error, :invalid_telemetry}
+
+  @spec validate_latitude(term()) :: {:ok, Types.latitude()} | {:error, :invalid_telemetry}
+  defp validate_latitude(lat) when is_number(lat) and lat >= -90 and lat <= 90,
+    do: {:ok, lat * 1.0}
+
+  defp validate_latitude(_lat), do: {:error, :invalid_telemetry}
+
+  @spec validate_longitude(term()) :: {:ok, Types.longitude()} | {:error, :invalid_telemetry}
+  defp validate_longitude(lng) when is_number(lng) and lng >= -180 and lng <= 180,
+    do: {:ok, lng * 1.0}
+
+  defp validate_longitude(_lng), do: {:error, :invalid_telemetry}
+
+  @spec validate_speed(term()) :: {:ok, float() | nil} | {:error, :invalid_telemetry}
+  defp validate_speed(nil), do: {:ok, nil}
+  defp validate_speed(speed) when is_number(speed) and speed >= 0, do: {:ok, speed * 1.0}
+  defp validate_speed(_speed), do: {:error, :invalid_telemetry}
+
+  @spec validate_bearing(term()) :: {:ok, float() | nil} | {:error, :invalid_telemetry}
+  defp validate_bearing(nil), do: {:ok, nil}
+
+  defp validate_bearing(bearing) when is_number(bearing) and bearing >= 0 and bearing < 360,
+    do: {:ok, bearing * 1.0}
+
+  defp validate_bearing(_bearing), do: {:error, :invalid_telemetry}
+
+  @spec with_usec(DateTime.t()) :: DateTime.t()
+  defp with_usec(%DateTime{microsecond: {_value, 6}} = recorded_at), do: recorded_at
+
+  defp with_usec(%DateTime{microsecond: {value, _precision}} = recorded_at),
+    do: %{recorded_at | microsecond: {value, 6}}
 end

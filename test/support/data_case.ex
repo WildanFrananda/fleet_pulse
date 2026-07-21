@@ -16,7 +16,7 @@ defmodule FleetPulse.DataCase do
 
   use ExUnit.CaseTemplate
 
-  alias Ecto.Adapter.SQL.Sandbox
+  alias Ecto.Adapters.SQL.Sandbox
 
   using do
     quote do

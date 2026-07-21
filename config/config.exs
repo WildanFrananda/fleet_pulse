@@ -22,6 +22,11 @@ config :fleet_pulse, FleetPulseWeb.Endpoint,
   pubsub_server: FleetPulse.PubSub,
   live_view: [signing_salt: "5WcZjYkx"]
 
+config :fleet_pulse, FleetPulse.Tracking.PersistenceBatcher,
+  enabled: true,
+  interval_ms: 30_000,
+  chunk_size: 1_000
+
 # Configure LiveView
 config :phoenix_live_view,
   # the attribute set on all root tags. Used for Phoenix.LiveView.ColocatedCSS.

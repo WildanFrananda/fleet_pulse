@@ -11,9 +11,7 @@ defmodule FleetPulse.Application do
       FleetPulse.Repo,
       {DNSCluster, query: Application.get_env(:fleet_pulse, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: FleetPulse.PubSub},
-      FleetPulse.Tracking.DriverRegistry,
-      FleetPulse.Tracking.StateCache,
-      FleetPulse.Tracking.DriverSupervisor,
+      FleetPulse.Tracking.Supervisor,
       FleetPulseWeb.Endpoint
     ]
 
