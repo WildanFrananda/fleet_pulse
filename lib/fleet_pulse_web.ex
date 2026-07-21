@@ -96,8 +96,8 @@ defmodule FleetPulseWeb do
       import FleetPulseWeb.CoreComponents
 
       # Common modules used in templates
-      alias Phoenix.LiveView.JS
       alias FleetPulseWeb.Layouts
+      alias Phoenix.LiveView.JS
 
       # Routes generation with the ~p sigil
       unquote(verified_routes())

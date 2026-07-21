@@ -8,7 +8,8 @@
       },
       strict: true,
       checks: %{
-        enabled: [
+        extra: [
+          # PAKSA @spec di tiap fungsi publik
           {Credo.Check.Readability.Specs, []}
         ]
       }

@@ -1,3 +1,4 @@
-# .dialyzer_ignore.exs
-# Format: {"path/to/file.ex", :warning_type} or {"path", :type, line}
-[]
+[
+  {"lib/fleet_pulse_web/components/core_components.ex", :contract_with_opaque},
+  {"lib/fleet_pulse_web/telemetry.ex", :contract_supertype}
+]

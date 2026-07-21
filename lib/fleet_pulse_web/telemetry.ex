@@ -9,7 +9,7 @@ defmodule FleetPulseWeb.Telemetry do
 
   @impl true
   @spec init(term()) ::
-          {:ok, {Supervisor.sup_flags(), [Supervisor.child_spec()]}} | :ignore
+          {:ok, {Supervisor.sup_flags(), [Supervisor.child_spec()]}}
   def init(_arg) do
     children = [
       # Telemetry poller will execute the given period measurements

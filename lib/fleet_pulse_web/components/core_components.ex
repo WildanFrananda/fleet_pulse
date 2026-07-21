@@ -29,6 +29,7 @@ defmodule FleetPulseWeb.CoreComponents do
   use Phoenix.Component
   use Gettext, backend: FleetPulseWeb.Gettext
 
+  alias Phoenix.HTML.Form
   alias Phoenix.LiveView.JS
 
   @typedoc "render component result HEEx (~H sigil / render_slot)."
@@ -214,7 +215,7 @@ defmodule FleetPulseWeb.CoreComponents do
   def input(%{type: "checkbox"} = assigns) do
     assigns =
       assign_new(assigns, :checked, fn ->
-        Phoenix.HTML.Form.normalize_value("checkbox", assigns[:value])
+        Form.normalize_value("checkbox", assigns[:value])
       end)
 
     ~H"""
