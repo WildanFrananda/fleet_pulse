@@ -14,6 +14,8 @@ defmodule FleetPulse.Tracking.DriverState do
 
   alias FleetPulse.Tracking.Driver
   alias FleetPulse.Tracking.DriverRegistry
+  alias FleetPulse.Tracking.Snapshot
+  alias FleetPulse.Tracking.StateCache
   alias FleetPulse.Types
 
   @typedoc """
@@ -104,9 +106,25 @@ defmodule FleetPulse.Tracking.DriverState do
   end
 
   @impl GenServer
-  @spec init(Types.id()) :: {:ok, t()}
+  @spec init(Types.id()) :: {:ok, t(), {:continue, :rehydrate}}
   def init(driver_id) do
-    {:ok, %__MODULE__{driver_id: driver_id}}
+    {:ok, %__MODULE__{driver_id: driver_id}, {:continue, :rehydrate}}
+  end
+
+  @impl GenServer
+  @spec handle_continue(:rehydrate, t()) ::
+          {:noreply, t()} | {:stop, {:shutdown, :unknown_driver}, t()}
+  def handle_continue(:rehydrate, %__MODULE__{driver_id: driver_id} = state) do
+    case StateCache.fetch(driver_id) do
+      {:ok, cached} ->
+        {:noreply, cached}
+
+      {:error, :not_found} ->
+        case Snapshot.fetch(driver_id) do
+          {:ok, snapshot} -> {:noreply, apply_snapshot(state, snapshot)}
+          {:error, :not_found} -> {:stop, {:shutdown, :unknown_driver}, state}
+        end
+    end
   end
 
   @impl GenServer
@@ -120,17 +138,35 @@ defmodule FleetPulse.Tracking.DriverState do
           {:noreply, t()}
   def handle_cast({:update_location, telemetry}, state) do
     {:noreply,
-     %{
+     commit(%{
        state
        | coordinates: {telemetry.latitude, telemetry.longitude},
          speed_kmh: Map.get(telemetry, :speed_kmh),
          bearing_deg: Map.get(telemetry, :bearing_deg),
          recorded_at: telemetry.recorded_at,
          synced_at: DateTime.utc_now()
-     }}
+     })}
   end
 
   def handle_cast({:update_status, status}, state) do
-    {:noreply, %{state | status: status, synced_at: DateTime.utc_now()}}
+    {:noreply, commit(%{state | status: status, synced_at: DateTime.utc_now()})}
+  end
+
+  @spec commit(t()) :: t()
+  defp commit(%__MODULE__{} = state) do
+    :ok = StateCache.put(state.driver_id, state)
+    state
+  end
+
+  @spec apply_snapshot(t(), Snapshot.t()) :: t()
+  defp apply_snapshot(%__MODULE__{} = state, snapshot) do
+    %{
+      state
+      | status: snapshot.status,
+        coordinates: snapshot.coordinates,
+        speed_kmh: snapshot.speed_kmh,
+        bearing_deg: snapshot.bearing_deg,
+        recorded_at: snapshot.recorded_at
+    }
   end
 end
