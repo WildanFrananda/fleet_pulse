@@ -14,9 +14,8 @@ defmodule FleetPulse.Application do
       FleetPulse.Repo,
       {DNSCluster, query: Application.get_env(:fleet_pulse, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: FleetPulse.PubSub},
-      # Start a worker by calling: FleetPulse.Worker.start_link(arg)
-      # {FleetPulse.Worker, arg},
-      # Start to serve requests, typically the last entry
+      FleetPulse.Tracking.DriverRegistry,
+      FleetPulse.Tracking.DriverSupervisor,
       FleetPulseWeb.Endpoint
     ]
 
