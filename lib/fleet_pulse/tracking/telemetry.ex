@@ -58,6 +58,33 @@ defmodule FleetPulse.Tracking.Telemetry do
 
   def normalise(_payload), do: {:error, :invalid_telemetry}
 
+  @doc """
+  Builds telemetry from raw socket params, where keys are strings and
+  `recorded_at` is an ISO 8601 string.
+
+  Keys are mapped explicitly, never with `String.to_atom/1`: atoms are not
+  garbage collected, so converting attacker-controlled strings is a memory
+  exhaustion vector.
+
+  This lives in the domain rather than the channel so the wire-format rules
+  sit beside the value rules they feed, and so both are unit-testable without
+  a socket.
+  """
+  @spec from_params(term()) :: {:ok, t()} | {:error, :invalid_telemetry}
+  def from_params(params) when is_map(params) do
+    with {:ok, recorded_at} <- parse_datetime(Map.get(params, "recorded_at")) do
+      normalise(%{
+        latitude: Map.get(params, "latitude"),
+        longitude: Map.get(params, "longitude"),
+        speed_kmh: Map.get(params, "speed_kmh"),
+        bearing_deg: Map.get(params, "bearing_deg"),
+        recorded_at: recorded_at
+      })
+    end
+  end
+
+  def from_params(_params), do: {:error, :invalid_telemetry}
+
   @spec latitude(term()) :: {:ok, Types.latitude()} | {:error, :invalid_telemetry}
   defp latitude(value) when is_number(value) and value >= -90 and value <= 90,
     do: {:ok, value * 1.0}
@@ -88,4 +115,14 @@ defmodule FleetPulse.Tracking.Telemetry do
 
   defp with_usec(%DateTime{microsecond: {value, _precision}} = recorded_at),
     do: %{recorded_at | microsecond: {value, 6}}
+
+  @spec parse_datetime(term()) :: {:ok, DateTime.t()} | {:error, :invalid_telemetry}
+  defp parse_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _utc_offset} -> {:ok, datetime}
+      {:error, _reason} -> {:error, :invalid_telemetry}
+    end
+  end
+
+  defp parse_datetime(_value), do: {:error, :invalid_telemetry}
 end

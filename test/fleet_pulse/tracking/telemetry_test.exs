@@ -95,4 +95,67 @@ defmodule FleetPulse.Tracking.TelemetryTest do
       end
     end
   end
+
+  describe "from_params/1" do
+    defp params(overrides \\ %{}) do
+      Map.merge(
+        %{
+          "latitude" => -6.2,
+          "longitude" => 106.816666,
+          "recorded_at" => "2026-07-21T10:00:00Z"
+        },
+        overrides
+      )
+    end
+
+    test "parses a well formed socket payload" do
+      assert {:ok, telemetry} = Telemetry.from_params(params(%{"speed_kmh" => 42}))
+
+      assert telemetry.latitude == -6.2
+      assert telemetry.speed_kmh === 42.0
+      assert telemetry.recorded_at == ~U[2026-07-21 10:00:00.000000Z]
+    end
+
+    test "defaults absent optional fields to nil" do
+      assert {:ok, telemetry} = Telemetry.from_params(params())
+      assert telemetry.speed_kmh == nil
+      assert telemetry.bearing_deg == nil
+    end
+
+    test "rejects a missing or unparseable recorded_at" do
+      assert {:error, :invalid_telemetry} =
+               Telemetry.from_params(Map.delete(params(), "recorded_at"))
+
+      assert {:error, :invalid_telemetry} =
+               Telemetry.from_params(params(%{"recorded_at" => "yesterday"}))
+
+      assert {:error, :invalid_telemetry} =
+               Telemetry.from_params(params(%{"recorded_at" => 1_700_000_000}))
+    end
+
+    test "still applies every value rule from normalise/1" do
+      assert {:error, :invalid_telemetry} = Telemetry.from_params(params(%{"latitude" => 999.0}))
+
+      assert {:error, :invalid_telemetry} =
+               Telemetry.from_params(params(%{"bearing_deg" => 360.0}))
+    end
+
+    test "ignores keys it does not know, without creating atoms from them" do
+      before = :erlang.system_info(:atom_count)
+
+      assert {:ok, telemetry} =
+               Telemetry.from_params(params(%{"totally_new_key_#{System.unique_integer()}" => 1}))
+
+      assert Enum.sort(Map.keys(telemetry)) ==
+               [:bearing_deg, :latitude, :longitude, :recorded_at, :speed_kmh]
+
+      assert :erlang.system_info(:atom_count) == before
+    end
+
+    test "rejects anything that is not a map" do
+      for bad <- [nil, [], "payload", 42] do
+        assert {:error, :invalid_telemetry} = Telemetry.from_params(bad)
+      end
+    end
+  end
 end
