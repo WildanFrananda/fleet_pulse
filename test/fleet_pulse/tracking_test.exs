@@ -177,14 +177,13 @@ defmodule FleetPulse.TrackingTest do
 
     defp north({lat, lng}, km), do: {lat + km / 111.19492664455873, lng}
 
-    defp place!({lat, lng}, status) do
-      driver = driver_fixture()
+    defp place!({lat, lng}, status, capacity_kg \\ 100) do
+      driver = driver_fixture(%{capacity_kg: capacity_kg})
       on_exit(fn -> cleanup(driver.id) end)
 
       {:ok, _pid} = Tracking.start_tracking(driver.id)
       {:ok, _driver} = Tracking.set_status(driver.id, status)
       :ok = Tracking.track_location(driver.id, telemetry_attrs(%{latitude: lat, longitude: lng}))
-
       {:ok, _state} = Tracking.fetch_state(driver.id)
 
       driver
@@ -249,6 +248,21 @@ defmodule FleetPulse.TrackingTest do
       place!(north(@centre, 50.0), :online)
 
       assert Tracking.nearby(@centre, 3.0) == []
+    end
+
+    test "carries capacity through rehydration into memory" do
+      driver = place!(north(@centre, 0.5), :online, 750)
+
+      assert {:ok, state} = Tracking.fetch_state(driver.id)
+      assert state.capacity_kg == 750
+    end
+
+    test "skips drivers that cannot carry the load" do
+      _small = place!(north(@centre, 0.5), :online, 50)
+      big = place!(north(@centre, 2.0), :online, 500)
+
+      assert [{state, _km}] = Tracking.nearby(@centre, 3.0, min_capacity_kg: 200)
+      assert state.driver_id == big.id
     end
   end
 end

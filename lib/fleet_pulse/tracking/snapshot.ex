@@ -26,6 +26,7 @@ defmodule FleetPulse.Tracking.Snapshot do
   """
   @type t :: %{
           status: Driver.status(),
+          capacity_kg: non_neg_integer(),
           coordinates: Types.coordinates() | nil,
           speed_kmh: float() | nil,
           bearing_deg: float() | nil,
@@ -59,6 +60,7 @@ defmodule FleetPulse.Tracking.Snapshot do
   defp build(%Driver{} = driver, nil) do
     %{
       status: driver.status,
+      capacity_kg: driver.capacity_kg,
       coordinates: nil,
       speed_kmh: nil,
       bearing_deg: nil,
@@ -69,6 +71,7 @@ defmodule FleetPulse.Tracking.Snapshot do
   defp build(%Driver{} = driver, %LocationPing{} = ping) do
     %{
       status: driver.status,
+      capacity_kg: driver.capacity_kg,
       coordinates: {ping.latitude, ping.longitude},
       speed_kmh: ping.speed_kmh,
       bearing_deg: ping.bearing_deg,

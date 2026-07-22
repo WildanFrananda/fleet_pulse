@@ -29,9 +29,16 @@ defmodule FleetPulse.Tracking.DriverState do
   idle reaper measures staleness against, so every cached state must carry
   one — which is why `commit/1` stamps it rather than the individual casts.
 
+  `capacity_kg` is a COPY of the drivers table, taken at rehydration. It goes
+  stale if the record changes while the driver is tracked — acceptable because
+  a vehicle's payload changes far more rarely than a driver reconnects, and
+  the alternative is a database read on every dispatch query.
+
+
   """
   @type t :: %__MODULE__{
           driver_id: Types.id(),
+          capacity_kg: non_neg_integer(),
           status: Driver.status(),
           coordinates: Types.coordinates() | nil,
           speed_kmh: float() | nil,
@@ -48,6 +55,7 @@ defmodule FleetPulse.Tracking.DriverState do
     :bearing_deg,
     :recorded_at,
     :synced_at,
+    capacity_kg: 0,
     status: :offline
   ]
 
@@ -208,6 +216,7 @@ defmodule FleetPulse.Tracking.DriverState do
     %{
       state
       | status: snapshot.status,
+        capacity_kg: snapshot.capacity_kg,
         coordinates: snapshot.coordinates,
         speed_kmh: snapshot.speed_kmh,
         bearing_deg: snapshot.bearing_deg,

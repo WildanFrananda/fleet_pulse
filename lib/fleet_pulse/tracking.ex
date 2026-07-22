@@ -35,9 +35,17 @@ defmodule FleetPulse.Tracking do
 
     * `:status` — which availability to accept, or `:any`. Defaults to
       `:online`, because dispatch wants drivers who can take work.
+    * `:min_capacity_kg` — reject drivers that cannot carry this load.
+      Defaults to `0`, which accepts everyone.
     * `:limit` — keep only the N nearest. Defaults to no limit.
   """
-  @type nearby_opts :: [status: Driver.status() | :any, limit: pos_integer()]
+  @type nearby_opts :: [
+          status: Driver.status() | :any,
+          min_capacity_kg: non_neg_integer(),
+          limit: pos_integer()
+        ]
+
+  @typep filters :: %{status: Driver.status() | :any, min_capacity_kg: non_neg_integer()}
 
   @spec create_driver(map()) :: {:ok, Driver.t()} | {:error, Driver.changeset()}
   def create_driver(attrs) do
@@ -108,11 +116,15 @@ defmodule FleetPulse.Tracking do
   """
   @spec nearby(Types.coordinates(), float(), nearby_opts()) :: [nearby_driver()]
   def nearby(coordinates, radius_km, opts \\ []) do
-    status = Keyword.get(opts, :status, :online)
+    filters = %{
+      status: Keyword.get(opts, :status, :online),
+      min_capacity_kg: Keyword.get(opts, :min_capacity_kg, 0)
+    }
+
     box = Geo.bounding_box(coordinates, radius_km)
 
     StateCache.all()
-    |> Enum.filter(&candidate?(&1, status, box))
+    |> Enum.filter(&candidate?(&1, filters, box))
     |> Enum.map(&{&1, Geo.distance_km(coordinates, &1.coordinates)})
     |> Enum.filter(fn {_state, distance} -> distance <= radius_km end)
     |> Enum.sort_by(fn {_state, distance} -> distance end)
@@ -159,10 +171,13 @@ defmodule FleetPulse.Tracking do
   def unsubscribe_driver(driver_id), do: Events.unsubscribe_driver(driver_id)
 
   @spec candidate?(DriverState.t(), Driver.status() | :any, Geo.box()) :: boolean()
-  defp candidate?(%DriverState{coordinates: nil}, _status, _box), do: false
+  @spec candidate?(DriverState.t(), filters(), Geo.box()) :: boolean()
+  defp candidate?(%DriverState{coordinates: nil}, _filters, _box), do: false
 
-  defp candidate?(%DriverState{coordinates: coordinates, status: actual}, wanted, box) do
-    status_matches?(actual, wanted) and Geo.within_box?(coordinates, box)
+  defp candidate?(%DriverState{} = state, filters, box) do
+    status_matches?(state.status, filters.status) and
+      state.capacity_kg >= filters.min_capacity_kg and
+      Geo.within_box?(state.coordinates, box)
   end
 
   @spec status_matches?(Driver.status(), Driver.status() | :any) :: boolean()
