@@ -166,4 +166,89 @@ defmodule FleetPulse.TrackingTest do
       refute_receive {:driver_updated, _}, 100
     end
   end
+
+  describe "nearby/3" do
+    @centre {-6.1754, 106.8272}
+
+    setup do
+      Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
+      :ok
+    end
+
+    defp north({lat, lng}, km), do: {lat + km / 111.19492664455873, lng}
+
+    defp place!({lat, lng}, status) do
+      driver = driver_fixture()
+      on_exit(fn -> cleanup(driver.id) end)
+
+      {:ok, _pid} = Tracking.start_tracking(driver.id)
+      {:ok, _driver} = Tracking.set_status(driver.id, status)
+      :ok = Tracking.track_location(driver.id, telemetry_attrs(%{latitude: lat, longitude: lng}))
+
+      {:ok, _state} = Tracking.fetch_state(driver.id)
+
+      driver
+    end
+
+    test "returns online drivers inside the radius, nearest first" do
+      near = place!(north(@centre, 0.5), :online)
+      far = place!(north(@centre, 2.0), :online)
+      _outside = place!(north(@centre, 10.0), :online)
+
+      assert [{first, first_km}, {second, second_km}] = Tracking.nearby(@centre, 3.0)
+
+      assert first.driver_id == near.id
+      assert second.driver_id == far.id
+      assert_in_delta first_km, 0.5, 0.01
+      assert_in_delta second_km, 2.0, 0.01
+    end
+
+    test "decides membership by real distance, not by the bounding box" do
+      inside = place!(north(@centre, 2.99), :online)
+      _outside = place!(north(@centre, 3.01), :online)
+
+      assert [{state, _km}] = Tracking.nearby(@centre, 3.0)
+      assert state.driver_id == inside.id
+    end
+
+    test "skips drivers whose status does not match" do
+      _busy = place!(north(@centre, 0.5), :busy)
+      online = place!(north(@centre, 1.0), :online)
+
+      assert [{state, _km}] = Tracking.nearby(@centre, 3.0)
+      assert state.driver_id == online.id
+    end
+
+    test "status: :any accepts every availability" do
+      place!(north(@centre, 0.5), :busy)
+      place!(north(@centre, 1.0), :online)
+
+      assert length(Tracking.nearby(@centre, 3.0, status: :any)) == 2
+    end
+
+    test "skips drivers that have never reported a position" do
+      driver = driver_fixture()
+      on_exit(fn -> cleanup(driver.id) end)
+
+      {:ok, _pid} = Tracking.start_tracking(driver.id)
+      {:ok, _driver} = Tracking.set_status(driver.id, :online)
+
+      assert Tracking.nearby(@centre, 3.0) == []
+    end
+
+    test "limit keeps the nearest" do
+      near = place!(north(@centre, 0.5), :online)
+      place!(north(@centre, 1.0), :online)
+      place!(north(@centre, 2.0), :online)
+
+      assert [{state, _km}] = Tracking.nearby(@centre, 3.0, limit: 1)
+      assert state.driver_id == near.id
+    end
+
+    test "returns an empty list when the fleet is far away" do
+      place!(north(@centre, 50.0), :online)
+
+      assert Tracking.nearby(@centre, 3.0) == []
+    end
+  end
 end
