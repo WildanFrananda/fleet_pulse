@@ -46,6 +46,18 @@ defmodule FleetPulse.Tracking.StateCache do
   end
 
   @doc """
+  Every cached driver state, including those with no known position yet.
+
+  Order is unspecified; this is a `:set`.
+  """
+  @spec all() :: [DriverState.t()]
+  def all do
+    @table
+    |> :ets.tab2list()
+    |> Enum.map(fn {_driver_id, %DriverState{} = state} -> state end)
+  end
+
+  @doc """
   Every cached driver that currently has a known position.
 
   Exists so callers never have to name the ETS table themselves — the table
@@ -54,12 +66,7 @@ defmodule FleetPulse.Tracking.StateCache do
   """
   @spec with_coordinates() :: [DriverState.t()]
   def with_coordinates do
-    @table
-    |> :ets.tab2list()
-    |> Enum.flat_map(fn
-      {_driver_id, %DriverState{coordinates: nil}} -> []
-      {_driver_id, %DriverState{} = state} -> [state]
-    end)
+    Enum.reject(all(), &is_nil(&1.coordinates))
   end
 
   @doc """
