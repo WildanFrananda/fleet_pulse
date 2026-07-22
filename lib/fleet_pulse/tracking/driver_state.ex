@@ -24,8 +24,11 @@ defmodule FleetPulse.Tracking.DriverState do
   A driver's live state.
 
   `recorded_at` is the device clock (when the GPS fix was taken).
-  `synced_at` is the server clock (when we received it).
-  The gap between them exposes clock skew and delayed connections.
+  `synced_at` is the server clock: when this state was last committed to the
+  cache, whether by a ping, a status change, or rehydration. It is what the
+  idle reaper measures staleness against, so every cached state must carry
+  one — which is why `commit/1` stamps it rather than the individual casts.
+
   """
   @type t :: %__MODULE__{
           driver_id: Types.id(),
@@ -96,6 +99,34 @@ defmodule FleetPulse.Tracking.DriverState do
     end
   end
 
+  @doc """
+  Whether a state counts as idle: marked offline, and untouched since `cutoff`.
+
+  Public because both the reaper's cheap ETS-side filter and the process's own
+  authoritative check must apply the SAME rule.
+  """
+  @spec idle?(t(), DateTime.t()) :: boolean()
+  def idle?(%__MODULE__{status: :offline, synced_at: %DateTime{} = synced_at}, cutoff) do
+    DateTime.before?(synced_at, cutoff)
+  end
+
+  def idle?(_state, _cutoff), do: false
+
+  @doc """
+  Stops the driver if it is idle as of `cutoff`.
+
+  The decision is made INSIDE the process, against its own current state, so a
+  driver that reconnects between the reaper's scan and this call is never
+  killed on a stale reading.
+  """
+  @spec stop_if_idle(Types.id(), DateTime.t()) :: :stopped | :active | {:error, :not_found}
+  def stop_if_idle(driver_id, cutoff) do
+    case DriverRegistry.whereis(driver_id) do
+      {:ok, pid} -> GenServer.call(pid, {:stop_if_idle, cutoff})
+      {:error, :not_found} = error -> error
+    end
+  end
+
   @impl GenServer
   @spec init(Types.id()) :: {:ok, t(), {:continue, :rehydrate}}
   def init(driver_id) do
@@ -121,9 +152,14 @@ defmodule FleetPulse.Tracking.DriverState do
   end
 
   @impl GenServer
-  @spec handle_call(:fetch, GenServer.from(), t()) :: {:reply, t(), t()}
+  @spec handle_call(:fetch | {:stop_if_idle, DateTime.t()}, GenServer.from(), t()) ::
+          {:reply, t() | :active, t()} | {:stop, {:shutdown, :idle}, :stopped, t()}
   def handle_call(:fetch, _from, state) do
     {:reply, state, state}
+  end
+
+  def handle_call({:stop_if_idle, cutoff}, _from, state) do
+    idle_reply(idle?(state, cutoff), state)
   end
 
   @impl GenServer
@@ -136,13 +172,12 @@ defmodule FleetPulse.Tracking.DriverState do
        | coordinates: {telemetry.latitude, telemetry.longitude},
          speed_kmh: Map.get(telemetry, :speed_kmh),
          bearing_deg: Map.get(telemetry, :bearing_deg),
-         recorded_at: telemetry.recorded_at,
-         synced_at: DateTime.utc_now()
+         recorded_at: telemetry.recorded_at
      })}
   end
 
   def handle_cast({:update_status, status}, state) do
-    {:noreply, commit(%{state | status: status, synced_at: DateTime.utc_now()})}
+    {:noreply, commit(%{state | status: status})}
   end
 
   @impl GenServer
@@ -162,9 +197,10 @@ defmodule FleetPulse.Tracking.DriverState do
 
   @spec commit(t()) :: t()
   defp commit(%__MODULE__{} = state) do
-    :ok = StateCache.put(state.driver_id, state)
-    :ok = Events.broadcast(state.driver_id, {:driver_updated, state})
-    state
+    stamped = %{state | synced_at: DateTime.utc_now()}
+    :ok = StateCache.put(state.driver_id, stamped)
+    :ok = Events.broadcast(stamped.driver_id, {:driver_updated, stamped})
+    stamped
   end
 
   @spec apply_snapshot(t(), Snapshot.t()) :: t()
@@ -178,4 +214,9 @@ defmodule FleetPulse.Tracking.DriverState do
         recorded_at: snapshot.recorded_at
     }
   end
+
+  @spec idle_reply(boolean(), t()) ::
+          {:reply, :active, t()} | {:stop, {:shutdown, :idle}, :stopped, t()}
+  defp idle_reply(false, state), do: {:reply, :active, state}
+  defp idle_reply(true, state), do: {:stop, {:shutdown, :idle}, :stopped, state}
 end

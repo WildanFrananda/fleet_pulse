@@ -27,6 +27,11 @@ config :fleet_pulse, FleetPulse.Tracking.PersistenceBatcher,
   interval_ms: 30_000,
   chunk_size: 1_000
 
+config :fleet_pulse, FleetPulse.Tracking.IdleReaper,
+  enabled: true,
+  interval_ms: 60_000,
+  idle_after_ms: 900_000
+
 # Configure LiveView
 config :phoenix_live_view,
   # the attribute set on all root tags. Used for Phoenix.LiveView.ColocatedCSS.

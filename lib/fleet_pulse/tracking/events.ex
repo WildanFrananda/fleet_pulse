@@ -4,14 +4,13 @@ defmodule FleetPulse.Tracking.Events do
 
   Every change is published to TWO topics, deliberately:
 
-    * `"drivers"` — the whole fleet. What the dispatch map subscribes to.
-    * `"driver:<id>"` — a single driver. What a detail view subscribes to.
+    * `"tracking:fleet"` — the whole fleet. What the dispatch map subscribes to.
+    * `"tracking:driver:<id>"` — a single driver. What a detail view subscribes to.
 
-  Publishing twice costs one extra in-node message send, which is close to
-  free. The alternative — a single fleet-wide topic — would force a detail
-  page to receive all 2000 updates per second (PRD target) and discard the
-  9999 drivers it does not care about. Filtering is far more expensive than
-  sending.
+  The `tracking:` prefix is not decoration. Phoenix channels subscribe to their
+  own topic string on this same PubSub server, so an unprefixed
+  `"driver:<id>"` would be the exact topic the driver's own channel listens on
+  — every broadcast would echo back into it.
   """
 
   alias FleetPulse.Tracking.DriverState
@@ -19,7 +18,7 @@ defmodule FleetPulse.Tracking.Events do
   alias Phoenix.PubSub
 
   @pubsub FleetPulse.PubSub
-  @fleet_topic "drivers"
+  @fleet_topic "tracking:fleet"
 
   @typedoc "Every message a tracking subscriber can receive."
   @type event :: {:driver_updated, DriverState.t()} | {:driver_stopped, Types.id()}
@@ -37,7 +36,7 @@ defmodule FleetPulse.Tracking.Events do
   def fleet_topic, do: @fleet_topic
 
   @spec driver_topic(Types.id()) :: String.t()
-  def driver_topic(driver_id), do: "driver:#{driver_id}"
+  def driver_topic(driver_id), do: "tracking:driver:#{driver_id}"
 
   @spec subscribe_fleet() :: subscribe_result()
   def subscribe_fleet, do: PubSub.subscribe(@pubsub, @fleet_topic)

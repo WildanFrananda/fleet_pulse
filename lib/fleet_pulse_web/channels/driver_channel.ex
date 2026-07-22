@@ -50,7 +50,7 @@ defmodule FleetPulseWeb.DriverChannel do
          :ok <- authorise(driver_id, socket.assigns.driver_id),
          {:ok, _pid} <- Tracking.start_tracking(driver_id),
          {:ok, _driver} <- Tracking.set_status(driver_id, :online) do
-      {:ok, socket}
+      {:ok, assign(socket, :tracking, driver_id)}
     else
       {:error, reason} -> {:error, %{reason: to_reason(reason)}}
     end
@@ -85,15 +85,17 @@ defmodule FleetPulseWeb.DriverChannel do
   end
 
   def handle_in(_event, _params, socket) do
-    {:reply, {:error, %{reason: "unknown_error"}}, socket}
+    {:reply, {:error, %{reason: "unknown_event"}}, socket}
   end
 
   @impl Phoenix.Channel
   @spec terminate(term(), Phoenix.Socket.t()) :: :ok
-  def terminate(_reason, socket) do
-    _ = Tracking.set_status(socket.assings.driver_id, :offline)
+  def terminate(_reason, %Phoenix.Socket{assigns: %{tracking: driver_id}}) do
+    _ = Tracking.set_status(driver_id, :offline)
     :ok
   end
+
+  def terminate(_reason, _socket), do: :ok
 
   @spec authorise(Types.id(), Types.id()) :: :ok | {:error, :forbidden}
   defp authorise(driver_id, driver_id), do: :ok
