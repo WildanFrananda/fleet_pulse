@@ -145,11 +145,11 @@ defmodule FleetPulseWeb.DriverChannelTest do
     end
 
     test "refuses an unknown status without minting an atom for it", %{channel: channel} do
-      atoms_before = :erlang.system_info(:atom_count)
-      ref = push(channel, "status", %{"status" => "napping_#{System.unique_integer()}"})
+      status = "napping_#{System.unique_integer([:positive])}"
+      ref = push(channel, "status", %{"status" => status})
 
       assert_reply ref, :error, %{reason: "invalid_status"}
-      assert :erlang.system_info(:atom_count) == atoms_before
+      assert_raise ArgumentError, fn -> String.to_existing_atom(status) end
     end
   end
 

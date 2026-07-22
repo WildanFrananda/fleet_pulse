@@ -62,7 +62,7 @@ defmodule FleetPulse.Tracking.DriverState do
   @spec fetch(Types.id()) :: {:ok, t()} | {:error, :not_found}
   def fetch(driver_id) do
     case DriverRegistry.whereis(driver_id) do
-      {:ok, pid} -> {:ok, GenServer.call(pid, :fetch)}
+      {:ok, pid} -> safe_fetch(pid)
       {:error, :not_found} = error -> error
     end
   end
@@ -122,7 +122,7 @@ defmodule FleetPulse.Tracking.DriverState do
   @spec stop_if_idle(Types.id(), DateTime.t()) :: :stopped | :active | {:error, :not_found}
   def stop_if_idle(driver_id, cutoff) do
     case DriverRegistry.whereis(driver_id) do
-      {:ok, pid} -> GenServer.call(pid, {:stop_if_idle, cutoff})
+      {:ok, pid} -> safe_stop_if_idle(pid, cutoff)
       {:error, :not_found} = error -> error
     end
   end
@@ -219,4 +219,18 @@ defmodule FleetPulse.Tracking.DriverState do
           {:reply, :active, t()} | {:stop, {:shutdown, :idle}, :stopped, t()}
   defp idle_reply(false, state), do: {:reply, :active, state}
   defp idle_reply(true, state), do: {:stop, {:shutdown, :idle}, :stopped, state}
+
+  @spec safe_fetch(pid()) :: {:ok, t()} | {:error, :not_found}
+  defp safe_fetch(pid) do
+    {:ok, GenServer.call(pid, :fetch)}
+  catch
+    :exit, _reason -> {:error, :not_found}
+  end
+
+  @spec safe_stop_if_idle(pid(), DateTime.t()) :: :stopped | :active | {:error, :not_found}
+  defp safe_stop_if_idle(pid, cutoff) do
+    GenServer.call(pid, {:stop_if_idle, cutoff})
+  catch
+    :exit, _reason -> {:error, :not_found}
+  end
 end

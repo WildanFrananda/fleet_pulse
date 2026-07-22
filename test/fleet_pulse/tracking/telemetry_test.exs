@@ -141,15 +141,14 @@ defmodule FleetPulse.Tracking.TelemetryTest do
     end
 
     test "ignores keys it does not know, without creating atoms from them" do
-      before = :erlang.system_info(:atom_count)
+      key = "totally_new_key_#{System.unique_integer([:positive])}"
 
-      assert {:ok, telemetry} =
-               Telemetry.from_params(params(%{"totally_new_key_#{System.unique_integer()}" => 1}))
+      assert {:ok, telemetry} = Telemetry.from_params(params(%{key => 1}))
 
       assert Enum.sort(Map.keys(telemetry)) ==
                [:bearing_deg, :latitude, :longitude, :recorded_at, :speed_kmh]
 
-      assert :erlang.system_info(:atom_count) == before
+      assert_raise ArgumentError, fn -> String.to_existing_atom(key) end
     end
 
     test "rejects anything that is not a map" do
