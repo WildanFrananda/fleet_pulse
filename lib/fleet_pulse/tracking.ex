@@ -22,9 +22,22 @@ defmodule FleetPulse.Tracking do
   alias FleetPulse.Tracking.DriverState
   alias FleetPulse.Tracking.DriverSupervisor
   alias FleetPulse.Tracking.Events
+  alias FleetPulse.Tracking.Geo
   alias FleetPulse.Tracking.StateCache
   alias FleetPulse.Tracking.Telemetry
   alias FleetPulse.Types
+
+  @typedoc "A driver and its distance from the query point, in kilometres."
+  @type nearby_driver :: {DriverState.t(), float()}
+
+  @typedoc """
+  Options for `nearby/3`.
+
+    * `:status` — which availability to accept, or `:any`. Defaults to
+      `:online`, because dispatch wants drivers who can take work.
+    * `:limit` — keep only the N nearest. Defaults to no limit.
+  """
+  @type nearby_opts :: [status: Driver.status() | :any, limit: pos_integer()]
 
   @spec create_driver(map()) :: {:ok, Driver.t()} | {:error, Driver.changeset()}
   def create_driver(attrs) do
@@ -83,6 +96,30 @@ defmodule FleetPulse.Tracking do
   def list_tracked, do: StateCache.all()
 
   @doc """
+  Drivers within `radius_km` of `coordinates`, nearest first (PRD 5.3).
+
+  Runs entirely in memory: no database round trip and no message sent to any
+  driver process, so a busy driver can never slow a dispatch query down.
+
+  The work is done in two passes. `Geo.bounding_box/2` discards the vast
+  majority with four float comparisons and no trigonometry; only the survivors
+  pay for `Geo.distance_km/2`. The box is deliberately never too small, so the
+  second pass is what actually decides membership.
+  """
+  @spec nearby(Types.coordinates(), float(), nearby_opts()) :: [nearby_driver()]
+  def nearby(coordinates, radius_km, opts \\ []) do
+    status = Keyword.get(opts, :status, :online)
+    box = Geo.bounding_box(coordinates, radius_km)
+
+    StateCache.all()
+    |> Enum.filter(&candidate?(&1, status, box))
+    |> Enum.map(&{&1, Geo.distance_km(coordinates, &1.coordinates)})
+    |> Enum.filter(fn {_state, distance} -> distance <= radius_km end)
+    |> Enum.sort_by(fn {_state, distance} -> distance end)
+    |> take(Keyword.get(opts, :limit))
+  end
+
+  @doc """
   Sets a driver's availability, writing through to the database.
 
   The database write comes first and is authoritative: a driver marked
@@ -120,4 +157,20 @@ defmodule FleetPulse.Tracking do
 
   @spec unsubscribe_driver(Types.id()) :: :ok
   def unsubscribe_driver(driver_id), do: Events.unsubscribe_driver(driver_id)
+
+  @spec candidate?(DriverState.t(), Driver.status() | :any, Geo.box()) :: boolean()
+  defp candidate?(%DriverState{coordinates: nil}, _status, _box), do: false
+
+  defp candidate?(%DriverState{coordinates: coordinates, status: actual}, wanted, box) do
+    status_matches?(actual, wanted) and Geo.within_box?(coordinates, box)
+  end
+
+  @spec status_matches?(Driver.status(), Driver.status() | :any) :: boolean()
+  defp status_matches?(_actual, :any), do: true
+  defp status_matches?(status, status), do: true
+  defp status_matches?(_actual, _wanted), do: false
+
+  @spec take([nearby_driver()], pos_integer() | nil) :: [nearby_driver()]
+  defp take(drivers, nil), do: drivers
+  defp take(drivers, count), do: Enum.take(drivers, count)
 end
