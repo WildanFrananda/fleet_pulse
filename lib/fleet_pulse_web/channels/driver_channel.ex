@@ -21,6 +21,8 @@ defmodule FleetPulseWeb.DriverChannel do
 
   use FleetPulseWeb, :channel
 
+  alias FleetPulse.Dispatch.Events
+  alias FleetPulse.Dispatch.Order
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.Driver
   alias FleetPulse.Tracking.Telemetry
@@ -50,6 +52,7 @@ defmodule FleetPulseWeb.DriverChannel do
          :ok <- authorise(driver_id, socket.assigns.driver_id),
          {:ok, _pid} <- Tracking.start_tracking(driver_id),
          {:ok, _driver} <- Tracking.set_status(driver_id, :online) do
+      :ok = Events.subscribe_driver(driver_id)
       {:ok, assign(socket, :tracking, driver_id)}
     else
       {:error, reason} -> {:error, %{reason: to_reason(reason)}}
@@ -89,6 +92,15 @@ defmodule FleetPulseWeb.DriverChannel do
   end
 
   @impl Phoenix.Channel
+  @spec handle_info(term(), Phoenix.Socket.t()) :: {:noreply, Phoenix.Socket.t()}
+  def handle_info({:order_assigned, %Order{} = order}, socket) do
+    push(socket, "order_assigned", order_payload(order))
+    {:noreply, socket}
+  end
+
+  def handle_info(_message, socket), do: {:noreply, socket}
+
+  @impl Phoenix.Channel
   @spec terminate(term(), Phoenix.Socket.t()) :: :ok
   def terminate(_reason, %Phoenix.Socket{assigns: %{tracking: driver_id}}) do
     _ = Tracking.set_status(driver_id, :offline)
@@ -122,4 +134,16 @@ defmodule FleetPulseWeb.DriverChannel do
   @spec to_reason(error()) :: String.t()
   defp to_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp to_reason(_reason), do: "unprocessable"
+
+  @spec order_payload(Order.t()) :: map()
+  defp order_payload(%Order{} = order) do
+    %{
+      id: order.id,
+      status: order.status,
+      weight_kg: order.weight_kg,
+      pickup: %{latitude: order.pickup_latitude, longitude: order.pickup_longitude},
+      dropoff: %{latitude: order.dropoff_latitude, longitude: order.dropoff_longitude},
+      assigned_at: order.assigned_at
+    }
+  end
 end

@@ -33,8 +33,6 @@ defmodule FleetPulse.Tracking.DriverState do
   stale if the record changes while the driver is tracked — acceptable because
   a vehicle's payload changes far more rarely than a driver reconnects, and
   the alternative is a database read on every dispatch query.
-
-
   """
   @type t :: %__MODULE__{
           driver_id: Types.id(),
@@ -108,6 +106,37 @@ defmodule FleetPulse.Tracking.DriverState do
   end
 
   @doc """
+  Atomically claims a driver for work.
+
+  Succeeds only if the driver is currently `:online`, flipping it to `:busy`
+  in the same, indivisible message. Two concurrent claims for the same driver
+  are serialised by the process: exactly one sees `:online` and wins; the
+  other sees `:busy` and loses. This is what prevents two orders from being
+  assigned the same driver, with no lock and no transaction.
+  """
+  @spec claim(Types.id()) :: {:ok, t()} | {:error, :not_found | :unavailable}
+  def claim(driver_id) do
+    case DriverRegistry.whereis(driver_id) do
+      {:ok, pid} -> safe_claim(pid)
+      {:error, :not_found} = error -> error
+    end
+  end
+
+  @doc """
+  Releases a claimed driver back to `:online`.
+
+  Used when an assignment is rolled back — the order failed to persist after
+  the driver was claimed. A no-op unless the driver is currently `:busy`.
+  """
+  @spec release(Types.id()) :: :ok | {:error, :not_found}
+  def release(driver_id) do
+    case DriverRegistry.whereis(driver_id) do
+      {:ok, pid} -> GenServer.cast(pid, :release)
+      {:error, :not_found} = error -> error
+    end
+  end
+
+  @doc """
   Whether a state counts as idle: marked offline, and untouched since `cutoff`.
 
   Public because both the reaper's cheap ETS-side filter and the process's own
@@ -160,10 +189,20 @@ defmodule FleetPulse.Tracking.DriverState do
   end
 
   @impl GenServer
-  @spec handle_call(:fetch | {:stop_if_idle, DateTime.t()}, GenServer.from(), t()) ::
-          {:reply, t() | :active, t()} | {:stop, {:shutdown, :idle}, :stopped, t()}
+  @spec handle_call(:fetch | :claim | {:stop_if_idle, DateTime.t()}, GenServer.from(), t()) ::
+          {:reply, t() | :active | {:ok, t()} | {:error, :unavailable}, t()}
+          | {:stop, {:shutdown, :idle}, :stopped, t()}
   def handle_call(:fetch, _from, state) do
     {:reply, state, state}
+  end
+
+  def handle_call(:claim, _from, %__MODULE__{status: :online} = state) do
+    claimed = commit(%{state | status: :busy})
+    {:reply, {:ok, claimed}, claimed}
+  end
+
+  def handle_call(:claim, _from, state) do
+    {:reply, {:error, :unavailable}, state}
   end
 
   def handle_call({:stop_if_idle, cutoff}, _from, state) do
@@ -171,8 +210,10 @@ defmodule FleetPulse.Tracking.DriverState do
   end
 
   @impl GenServer
-  @spec handle_cast({:update_location, Telemetry.t()} | {:update_status, Driver.status()}, t()) ::
-          {:noreply, t()}
+  @spec handle_cast(
+          {:update_location, Telemetry.t()} | {:update_status, Driver.status()} | :release,
+          t()
+        ) :: {:noreply, t()}
   def handle_cast({:update_location, telemetry}, state) do
     {:noreply,
      commit(%{
@@ -186,6 +227,14 @@ defmodule FleetPulse.Tracking.DriverState do
 
   def handle_cast({:update_status, status}, state) do
     {:noreply, commit(%{state | status: status})}
+  end
+
+  def handle_cast(:release, %__MODULE__{status: :busy} = state) do
+    {:noreply, commit(%{state | status: :online})}
+  end
+
+  def handle_cast(:release, state) do
+    {:noreply, state}
   end
 
   @impl GenServer
@@ -232,6 +281,13 @@ defmodule FleetPulse.Tracking.DriverState do
   @spec safe_fetch(pid()) :: {:ok, t()} | {:error, :not_found}
   defp safe_fetch(pid) do
     {:ok, GenServer.call(pid, :fetch)}
+  catch
+    :exit, _reason -> {:error, :not_found}
+  end
+
+  @spec safe_claim(pid()) :: {:ok, t()} | {:error, :not_found | :unavailable}
+  defp safe_claim(pid) do
+    GenServer.call(pid, :claim)
   catch
     :exit, _reason -> {:error, :not_found}
   end

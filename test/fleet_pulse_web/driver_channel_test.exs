@@ -3,6 +3,7 @@ defmodule FleetPulseWeb.DriverChannelTest do
 
   import FleetPulse.TrackingFixtures
 
+  alias FleetPulse.Dispatch
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.StateCache
   alias FleetPulseWeb.DriverSocket
@@ -182,6 +183,40 @@ defmodule FleetPulseWeb.DriverChannelTest do
 
       refute_receive {:driver_updated, %{status: :offline}}, 200
       assert {:ok, %{status: :online}} = Tracking.fetch_driver(driver.id)
+    end
+  end
+
+  describe "assignment push" do
+    setup %{driver: driver, socket: socket} do
+      channel = join!(socket, driver.id)
+
+      # Put the driver on the pickup so dispatch will pick it.
+      :ok =
+        Tracking.track_location(
+          driver.id,
+          telemetry_attrs(%{latitude: -6.1754, longitude: 106.8272})
+        )
+
+      {:ok, _state} = Tracking.fetch_state(driver.id)
+      %{channel: channel}
+    end
+
+    test "pushes an assigned order to the driver's device" do
+      {:ok, order} =
+        Dispatch.create_order(%{
+          pickup_latitude: -6.1754,
+          pickup_longitude: 106.8272,
+          dropoff_latitude: -6.9,
+          dropoff_longitude: 107.6,
+          weight_kg: 50
+        })
+
+      assert {:ok, _assigned} = Dispatch.assign_order(order.id)
+
+      assert_push "order_assigned", payload
+      assert payload.id == order.id
+      assert payload.status == :assigned
+      assert payload.pickup == %{latitude: -6.1754, longitude: 106.8272}
     end
   end
 end
