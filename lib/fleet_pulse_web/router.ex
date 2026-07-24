@@ -35,6 +35,12 @@ defmodule FleetPulseWeb.Router do
     end
   end
 
+  scope "/", FleetPulseWeb do
+    pipe_through :api
+
+    post "/driver/session", DriverSessionController, :create
+  end
+
   # Other scopes may use custom stacks.
   # scope "/api", FleetPulseWeb do
   #   pipe_through :api

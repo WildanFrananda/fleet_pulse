@@ -29,6 +29,12 @@ defmodule FleetPulseWeb.DriverToken do
   def sign(driver_id), do: Token.sign(Endpoint, @salt, driver_id)
 
   @doc """
+  How long a freshly signed token stays valid, in seconds.
+  """
+  @spec max_age_seconds() :: 604_800
+  def max_age_seconds, do: @max_age_seconds
+
+  @doc """
   Verifies a presented token and returns the driver it identifies.
   """
   @spec verify(term()) :: {:ok, Types.id()} | {:error, error()}

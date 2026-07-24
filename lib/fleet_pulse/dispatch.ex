@@ -59,6 +59,21 @@ defmodule FleetPulse.Dispatch do
   end
 
   @doc """
+  A driver's in-flight order, if any — assigned or picked up, never terminal.
+
+  Used when a driver (re)connects so the app can restore its current job
+  instead of losing it to a dropped socket.
+  """
+  @spec active_order_for_driver(Types.id()) :: Order.t() | nil
+  def active_order_for_driver(driver_id) do
+    Order
+    |> where([o], o.driver_id == ^driver_id and o.status in [:assigned, :picked_up])
+    |> order_by([o], desc: o.assigned_at)
+    |> limit(1)
+    |> Repo.one()
+  end
+
+  @doc """
   Assigns a pending order to the nearest eligible driver.
 
   Eligible means online, within `radius_km` of the pickup, and able to carry

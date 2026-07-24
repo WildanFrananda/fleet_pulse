@@ -226,4 +226,36 @@ defmodule FleetPulse.DispatchTest do
       assert {:error, :invalid_transition} = Dispatch.cancel_order(order.id)
     end
   end
+
+  describe "active_order_for_driver/1" do
+    test "returns an assigned order" do
+      driver = online_driver(0.5, 100)
+      {:ok, order} = Dispatch.assign_order(order!().id)
+
+      assert %{id: id} = Dispatch.active_order_for_driver(driver.id)
+      assert id == order.id
+    end
+
+    test "returns a picked-up order" do
+      driver = online_driver(0.5, 100)
+      {:ok, order} = Dispatch.assign_order(order!().id)
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+
+      assert %{status: :picked_up} = Dispatch.active_order_for_driver(driver.id)
+    end
+
+    test "returns nil once the order is delivered" do
+      driver = online_driver(0.5, 100)
+      {:ok, order} = Dispatch.assign_order(order!().id)
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id)
+
+      assert Dispatch.active_order_for_driver(driver.id) == nil
+    end
+
+    test "returns nil for a driver with no order" do
+      driver = online_driver(0.5, 100)
+      assert Dispatch.active_order_for_driver(driver.id) == nil
+    end
+  end
 end

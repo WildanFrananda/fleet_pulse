@@ -29,6 +29,16 @@ defmodule FleetPulseWeb.DriverChannel do
   alias FleetPulse.Tracking.Telemetry
   alias FleetPulse.Types
 
+  @typedoc "An order serialised for the wire — the shape pushed to a device."
+  @type order_wire :: %{
+          id: term(),
+          status: term(),
+          weight_kg: term(),
+          pickup: %{latitude: term(), longitude: term()},
+          dropoff: %{latitude: term(), longitude: term()},
+          assigned_at: term()
+        }
+
   @typedoc """
   Every failure that can reach a driver's device from this channel.
 
@@ -52,8 +62,9 @@ defmodule FleetPulseWeb.DriverChannel do
     with {:ok, driver_id} <- parse_id(topic_id),
          :ok <- authorise(driver_id, socket.assigns.driver_id),
          {:ok, _pid} <- Tracking.start_tracking(driver_id),
-         {:ok, _driver} <- Tracking.set_status(driver_id, :online) do
+         {:ok, _driver} <- Tracking.set_status(driver_id, join_status(driver_id)) do
       :ok = Events.subscribe_driver(driver_id)
+      send(self(), :after_join)
       {:ok, assign(socket, :tracking, driver_id)}
     else
       {:error, reason} -> {:error, %{reason: to_reason(reason)}}
@@ -103,6 +114,11 @@ defmodule FleetPulseWeb.DriverChannel do
 
   @impl Phoenix.Channel
   @spec handle_info(term(), Phoenix.Socket.t()) :: {:noreply, Phoenix.Socket.t()}
+  def handle_info(:after_join, socket) do
+    push(socket, "active_order", active_order_payload(socket.assigns.driver_id))
+    {:noreply, socket}
+  end
+
   def handle_info({:order_assigned, %Order{} = order}, socket) do
     push(socket, "order_assigned", order_payload(order))
     {:noreply, socket}
@@ -157,6 +173,24 @@ defmodule FleetPulseWeb.DriverChannel do
   defp reply_transition({:error, reason}, socket) do
     {:reply, {:error, %{reason: to_reason(reason)}}, socket}
   end
+
+  @spec join_status(Types.id()) :: :online | :busy
+  defp join_status(driver_id) do
+    status_for(Dispatch.active_order_for_driver(driver_id))
+  end
+
+  @spec status_for(Order.t() | nil) :: :online | :busy
+  defp status_for(nil), do: :online
+  defp status_for(%Order{}), do: :busy
+
+  @spec active_order_payload(Types.id()) :: %{order: order_wire() | nil}
+  defp active_order_payload(driver_id) do
+    order_or_nil(Dispatch.active_order_for_driver(driver_id))
+  end
+
+  @spec order_or_nil(Order.t() | nil) :: %{order: order_wire() | nil}
+  defp order_or_nil(nil), do: %{order: nil}
+  defp order_or_nil(%Order{} = order), do: %{order: order_payload(order)}
 
   @spec order_payload(Order.t()) :: map()
   defp order_payload(%Order{} = order) do
