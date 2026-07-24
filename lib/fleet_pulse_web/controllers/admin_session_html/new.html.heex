@@ -1,0 +1,17 @@
+<Layouts.app flash={@flash}>
+  <div class="mx-auto max-w-sm">
+    <.header>
+      Dispatch Console
+      <:subtitle>Admin log in</:subtitle>
+    </.header>
+
+    <.form :let={f} for={%{}} as={:admin} action={~p"/admin/log_in"} class="space-y-4">
+      <p :if={@error_message} class="alert alert-error" role="alert">{@error_message}</p>
+
+      <.input field={f[:email]} type="email" label="Email" required />
+      <.input field={f[:password]} type="password" label="Password" required />
+
+      <.button class="btn btn-primary w-full">Log in</.button>
+    </.form>
+  </div>
+</Layouts.app>

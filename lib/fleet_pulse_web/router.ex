@@ -1,6 +1,8 @@
 defmodule FleetPulseWeb.Router do
   use FleetPulseWeb, :router
 
+  import FleetPulseWeb.AdminAuth
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -8,6 +10,7 @@ defmodule FleetPulseWeb.Router do
     plug :put_root_layout, html: {FleetPulseWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug :fetch_current_admin
   end
 
   pipeline :api do
@@ -18,7 +21,18 @@ defmodule FleetPulseWeb.Router do
     pipe_through :browser
 
     get "/", PageController, :home
-    live "/dispatch", DispatchLive
+    get "/admin/log_in", AdminSessionController, :new
+    post "/admin/log_in", AdminSessionController, :create
+    delete "/admin/log_out", AdminSessionController, :delete
+  end
+
+  scope "/", FleetPulseWeb do
+    pipe_through [:browser, :require_authenticated_admin]
+
+    live_session :require_authenticated_admin,
+      on_mount: [{FleetPulseWeb.AdminAuth, :ensure_authenticated}] do
+      live "/dispatch", DispatchLive
+    end
   end
 
   # Other scopes may use custom stacks.

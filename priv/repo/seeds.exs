@@ -1,11 +1,10 @@
-# Script for populating the database. You can run it as:
-#
-#     mix run priv/repo/seeds.exs
-#
-# Inside the script, you can read and write to any of your
-# repositories directly:
-#
-#     FleetPulse.Repo.insert!(%FleetPulse.SomeSchema{})
-#
-# We recommend using the bang functions (`insert!`, `update!`
-# and so on) as they will fail if something goes wrong.
+alias FleetPulse.Accounts
+alias FleetPulse.Accounts.Admin
+alias FleetPulse.Repo
+
+admin_email = "admin@fleetpulse.local"
+
+unless Repo.get_by(Admin, email: admin_email) do
+  {:ok, _admin} = Accounts.create_admin(%{email: admin_email, password: "changeme123456"})
+  IO.puts("Seeded admin #{admin_email} (password: changeme123456)")
+end

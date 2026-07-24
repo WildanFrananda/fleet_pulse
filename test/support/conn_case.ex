@@ -17,6 +17,8 @@ defmodule FleetPulseWeb.ConnCase do
 
   use ExUnit.CaseTemplate
 
+  alias FleetPulse.Accounts.Admin
+
   using do
     quote do
       # The default endpoint for testing
@@ -30,6 +32,16 @@ defmodule FleetPulseWeb.ConnCase do
       import Phoenix.LiveViewTest
       import FleetPulseWeb.ConnCase
     end
+  end
+
+  @doc """
+  Puts an admin into the test session, so a request arrives authenticated.
+  """
+  @spec log_in_admin(Plug.Conn.t(), Admin.t()) :: Plug.Conn.t()
+  def log_in_admin(conn, %Admin{} = admin) do
+    conn
+    |> Phoenix.ConnTest.init_test_session(%{})
+    |> Plug.Conn.put_session(:admin_id, admin.id)
   end
 
   setup tags do

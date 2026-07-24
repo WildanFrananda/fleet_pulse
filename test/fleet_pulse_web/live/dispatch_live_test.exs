@@ -2,13 +2,14 @@ defmodule FleetPulseWeb.DispatchLiveTest do
   use FleetPulseWeb.ConnCase
 
   import FleetPulse.TrackingFixtures
+  import FleetPulse.AccountsFixtures
 
   alias FleetPulse.Tracking
   alias FleetPulse.Tracking.StateCache
 
-  setup do
+  setup %{conn: conn} do
     Enum.each(StateCache.all(), &StateCache.delete(&1.driver_id))
-    :ok
+    %{conn: log_in_admin(conn, admin_fixture())}
   end
 
   defp place!(latitude) do
@@ -27,6 +28,16 @@ defmodule FleetPulseWeb.DispatchLiveTest do
     _ = Tracking.stop_tracking(driver_id)
     _ = StateCache.delete(driver_id)
     :ok
+  end
+
+  test "redirects an anonymous visitor to login" do
+    assert {:error, {:redirect, %{to: path}}} = live(build_conn(), ~p"/dispatch")
+    assert path == ~p"/admin/log_in"
+  end
+
+  test "an authenticated admin reaches the console", %{conn: conn} do
+    assert {:ok, _view, html} = live(conn, ~p"/dispatch")
+    assert html =~ "Dispatch"
   end
 
   test "renders the fleet already in memory at mount", %{conn: conn} do
