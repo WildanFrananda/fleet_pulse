@@ -201,6 +201,63 @@ defmodule FleetPulseWeb.DriverChannelTest do
       %{channel: channel}
     end
 
+    test "advances the order through pickup and delivery from the device", %{
+      driver: driver,
+      channel: channel
+    } do
+      {:ok, order} =
+        Dispatch.create_order(%{
+          pickup_latitude: -6.1754,
+          pickup_longitude: 106.8272,
+          dropoff_latitude: -6.9,
+          dropoff_longitude: 107.6,
+          weight_kg: 50
+        })
+
+      {:ok, _} = Dispatch.assign_order(order.id)
+      assert_push "order_assigned", _payload
+
+      ref = push(channel, "pickup", %{"order_id" => order.id})
+      assert_reply ref, :ok
+      assert {:ok, %{status: :picked_up}} = Dispatch.fetch_order(order.id)
+
+      ref = push(channel, "delivered", %{"order_id" => order.id})
+      assert_reply ref, :ok
+      assert {:ok, %{status: :delivered}} = Dispatch.fetch_order(order.id)
+
+      assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "refuses to advance an order the driver does not own", %{channel: channel} do
+      intruder = driver_fixture(%{capacity_kg: 500})
+      on_exit(fn -> cleanup(intruder.id) end)
+      {:ok, _pid} = Tracking.start_tracking(intruder.id)
+      {:ok, _} = Tracking.set_status(intruder.id, :online)
+
+      :ok =
+        Tracking.track_location(
+          intruder.id,
+          telemetry_attrs(%{latitude: -6.1754, longitude: 106.8272})
+        )
+
+      {:ok, _} = Tracking.fetch_state(intruder.id)
+
+      {:ok, order} =
+        Dispatch.create_order(%{
+          pickup_latitude: -6.1754,
+          pickup_longitude: 106.8272,
+          dropoff_latitude: -6.9,
+          dropoff_longitude: 107.6,
+          weight_kg: 200
+        })
+
+      {:ok, assigned} = Dispatch.assign_order(order.id)
+      assert assigned.driver_id == intruder.id
+
+      ref = push(channel, "pickup", %{"order_id" => order.id})
+      assert_reply ref, :error, %{reason: "forbidden"}
+    end
+
     test "pushes an assigned order to the driver's device" do
       {:ok, order} =
         Dispatch.create_order(%{

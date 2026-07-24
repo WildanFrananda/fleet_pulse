@@ -21,6 +21,7 @@ defmodule FleetPulseWeb.DriverChannel do
 
   use FleetPulseWeb, :channel
 
+  alias FleetPulse.Dispatch
   alias FleetPulse.Dispatch.Events
   alias FleetPulse.Dispatch.Order
   alias FleetPulse.Tracking
@@ -65,6 +66,7 @@ defmodule FleetPulseWeb.DriverChannel do
   @spec handle_in(String.t(), map(), Phoenix.Socket.t()) ::
           {:reply, :ok | {:error, %{reason: String.t()}}, Phoenix.Socket.t()}
           | {:noreply, Phoenix.Socket.t()}
+
   def handle_in("ping", params, socket) do
     driver_id = socket.assigns.driver_id
 
@@ -87,6 +89,14 @@ defmodule FleetPulseWeb.DriverChannel do
     end
   end
 
+  def handle_in("pickup", %{"order_id" => order_id}, socket) when is_integer(order_id) do
+    reply_transition(Dispatch.mark_picked_up(order_id, socket.assigns.driver_id), socket)
+  end
+
+  def handle_in("delivered", %{"order_id" => order_id}, socket) when is_integer(order_id) do
+    reply_transition(Dispatch.mark_delivered(order_id, socket.assigns.driver_id), socket)
+  end
+
   def handle_in(_event, _params, socket) do
     {:reply, {:error, %{reason: "unknown_event"}}, socket}
   end
@@ -95,6 +105,11 @@ defmodule FleetPulseWeb.DriverChannel do
   @spec handle_info(term(), Phoenix.Socket.t()) :: {:noreply, Phoenix.Socket.t()}
   def handle_info({:order_assigned, %Order{} = order}, socket) do
     push(socket, "order_assigned", order_payload(order))
+    {:noreply, socket}
+  end
+
+  def handle_info({:order_updated, %Order{} = order}, socket) do
+    push(socket, "order_updated", order_payload(order))
     {:noreply, socket}
   end
 
@@ -134,6 +149,14 @@ defmodule FleetPulseWeb.DriverChannel do
   @spec to_reason(error()) :: String.t()
   defp to_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp to_reason(_reason), do: "unprocessable"
+
+  @spec reply_transition({:ok, Order.t()} | {:error, atom()}, Phoenix.Socket.t()) ::
+          {:reply, :ok | {:error, %{reason: String.t()}}, Phoenix.Socket.t()}
+  defp reply_transition({:ok, %Order{}}, socket), do: {:reply, :ok, socket}
+
+  defp reply_transition({:error, reason}, socket) do
+    {:reply, {:error, %{reason: to_reason(reason)}}, socket}
+  end
 
   @spec order_payload(Order.t()) :: map()
   defp order_payload(%Order{} = order) do
