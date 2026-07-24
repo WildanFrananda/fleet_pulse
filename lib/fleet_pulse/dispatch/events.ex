@@ -16,7 +16,7 @@ defmodule FleetPulse.Dispatch.Events do
   @pubsub FleetPulse.PubSub
 
   @typedoc "Every message a dispatch subscriber can receive."
-  @type event :: {:order_assigned, Order.t()}
+  @type event :: {:order_assigned, Order.t()} | {:order_updated, Order.t()}
 
   @typedoc "Result of a subscription; mirrors `Phoenix.PubSub.subscribe/2`."
   @type subscribe_result :: :ok | {:error, {:already_registered, pid()}}

@@ -38,21 +38,26 @@ defmodule FleetPulse.DispatchTest do
   end
 
   defp order!(overrides \\ %{}) do
-    {:ok, order} =
-      Dispatch.create_order(
-        Map.merge(
-          %{
-            pickup_latitude: elem(@pickup, 0),
-            pickup_longitude: elem(@pickup, 1),
-            dropoff_latitude: -6.9,
-            dropoff_longitude: 107.6,
-            weight_kg: 100
-          },
-          overrides
-        )
-      )
-
+    {:ok, order} = Dispatch.create_order(order_attrs(overrides))
     order
+  end
+
+  defp assigned_order! do
+    {:ok, order} = Dispatch.assign_order(order!().id)
+    order
+  end
+
+  defp order_attrs(overrides \\ %{}) do
+    Map.merge(
+      %{
+        pickup_latitude: elem(@pickup, 0),
+        pickup_longitude: elem(@pickup, 1),
+        dropoff_latitude: -6.9,
+        dropoff_longitude: 107.6,
+        weight_kg: 100
+      },
+      overrides
+    )
   end
 
   describe "assign_order/2" do
@@ -160,6 +165,65 @@ defmodule FleetPulse.DispatchTest do
       assert [{:ok, won}] = winners
       assert won.driver_id == driver.id
       assert {:ok, %{status: :busy}} = Tracking.fetch_state(driver.id)
+    end
+  end
+
+  describe "order lifecycle" do
+    test "advances assigned -> picked_up -> delivered and frees the driver" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      assert {:ok, %{status: :busy}} = Tracking.fetch_state(driver.id)
+
+      assert {:ok, %{status: :picked_up}} = Dispatch.mark_picked_up(order.id, driver.id)
+      assert {:ok, %{status: :delivered}} = Dispatch.mark_delivered(order.id, driver.id)
+
+      assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "refuses a pickup by a driver who does not own the order" do
+      owner = online_driver(0.5, 100)
+      intruder = online_driver(2.0, 100)
+
+      {:ok, order} = Dispatch.assign_order(order!().id)
+      assert order.driver_id == owner.id, "expected the nearer driver to be assigned"
+
+      assert {:error, :forbidden} = Dispatch.mark_picked_up(order.id, intruder.id)
+    end
+
+    test "refuses delivery before pickup" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+
+      assert {:error, :invalid_transition} = Dispatch.mark_delivered(order.id, driver.id)
+    end
+
+    test "refuses a pickup on an order the driver was never assigned" do
+      driver = online_driver(0.5, 100)
+      {:ok, order} = Dispatch.create_order(order_attrs())
+
+      assert {:error, :forbidden} = Dispatch.mark_picked_up(order.id, driver.id)
+    end
+
+    test "cancels an assigned order and frees the driver" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+
+      assert {:ok, %{status: :cancelled}} = Dispatch.cancel_order(order.id)
+      assert {:ok, %{status: :online}} = Tracking.fetch_state(driver.id)
+    end
+
+    test "cancels a pending order that has no driver" do
+      {:ok, order} = Dispatch.create_order(order_attrs())
+      assert {:ok, %{status: :cancelled}} = Dispatch.cancel_order(order.id)
+    end
+
+    test "refuses to cancel a delivered order" do
+      driver = online_driver(0.5, 100)
+      order = assigned_order!()
+      {:ok, _} = Dispatch.mark_picked_up(order.id, driver.id)
+      {:ok, _} = Dispatch.mark_delivered(order.id, driver.id)
+
+      assert {:error, :invalid_transition} = Dispatch.cancel_order(order.id)
     end
   end
 end
