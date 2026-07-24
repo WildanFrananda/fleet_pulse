@@ -33,6 +33,8 @@ defmodule FleetPulse.Tracking.Driver do
           capacity_kg: non_neg_integer() | nil,
           status: status() | nil,
           active: boolean() | nil,
+          hashed_password: String.t() | nil,
+          password: String.t() | nil,
           inserted_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil
         }
@@ -51,9 +53,13 @@ defmodule FleetPulse.Tracking.Driver do
     field :capacity_kg, :integer, default: 0
     field :status, Ecto.Enum, values: @statuses, default: :offline
     field :active, :boolean, default: true
+    field :hashed_password, :string, redact: true
+    field :password, :string, virtual: true, redact: true
 
     timestamps(type: :utc_datetime)
   end
+
+  @max_password_bytes 72
 
   @doc """
   A list of valid states — a single source for validation, seeds, and UI choices.
@@ -76,6 +82,49 @@ defmodule FleetPulse.Tracking.Driver do
     |> unique_constraint(:phone)
     |> unique_constraint(:vehicle_plate)
     |> check_constraint(:capacity_kg, name: :drivers_capacity_kg_non_negative)
+  end
+
+  @doc """
+  Changeset for setting or changing a driver's login password.
+
+  The plaintext lives only in the virtual `:password` field; it is hashed into
+  `:hashed_password` and dropped before persistence.
+  """
+  @spec password_changeset(t(), map()) :: changeset()
+  def password_changeset(%__MODULE__{} = driver, attrs) do
+    driver
+    |> cast(attrs, [:password])
+    |> validate_required([:password])
+    |> validate_length(:password, min: 12, max: @max_password_bytes, count: :bytes)
+    |> put_password_hash()
+  end
+
+  @spec put_password_hash(changeset()) :: changeset()
+  defp put_password_hash(
+         %Ecto.Changeset{valid?: true, changes: %{password: password}} = changeset
+       ) do
+    changeset
+    |> put_change(:hashed_password, Bcrypt.hash_pwd_salt(password))
+    |> delete_change(:password)
+  end
+
+  defp put_password_hash(changeset), do: changeset
+
+  @doc """
+  Verifies a plaintext password against a driver's stored hash.
+
+  Runs a dummy hash when there is no stored password, so a driver who was never
+  given credentials is indistinguishable by timing from a wrong password.
+  """
+  @spec valid_password?(t(), String.t()) :: boolean()
+  def valid_password?(%__MODULE__{hashed_password: hashed}, password)
+      when is_binary(hashed) and is_binary(password) do
+    Bcrypt.verify_pass(password, hashed)
+  end
+
+  def valid_password?(_driver, _password) do
+    Bcrypt.no_user_verify()
+    false
   end
 
   @doc """

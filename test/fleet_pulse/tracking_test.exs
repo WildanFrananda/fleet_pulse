@@ -265,4 +265,32 @@ defmodule FleetPulse.TrackingTest do
       assert state.driver_id == big.id
     end
   end
+
+  describe "authenticate_driver/2" do
+    setup %{driver: driver} do
+      {:ok, driver} = Tracking.set_driver_password(driver, "supersecret123")
+      %{driver: driver}
+    end
+
+    test "returns the driver for correct credentials", %{driver: driver} do
+      assert {:ok, found} = Tracking.authenticate_driver(driver.phone, "supersecret123")
+      assert found.id == driver.id
+    end
+
+    test "rejects a wrong password", %{driver: driver} do
+      assert {:error, :invalid_credentials} = Tracking.authenticate_driver(driver.phone, "wrong")
+    end
+
+    test "rejects an unknown phone" do
+      assert {:error, :invalid_credentials} =
+               Tracking.authenticate_driver("089999999999", "supersecret123")
+    end
+
+    test "rejects a driver who has no password set" do
+      other = driver_fixture()
+
+      assert {:error, :invalid_credentials} =
+               Tracking.authenticate_driver(other.phone, "supersecret123")
+    end
+  end
 end

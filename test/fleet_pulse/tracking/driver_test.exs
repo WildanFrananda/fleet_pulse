@@ -93,4 +93,32 @@ defmodule FleetPulse.Tracking.DriverTest do
       assert Driver.statuses() == [:online, :busy, :offline]
     end
   end
+
+  describe "password_changeset/2" do
+    test "hashes the password and drops the plaintext" do
+      changes = Driver.password_changeset(%Driver{}, %{password: "supersecret123"}).changes
+
+      assert is_binary(changes.hashed_password)
+      refute Map.has_key?(changes, :password)
+    end
+
+    test "rejects a password shorter than 12 or longer than 72 bytes" do
+      refute Driver.password_changeset(%Driver{}, %{password: "short"}).valid?
+      refute Driver.password_changeset(%Driver{}, %{password: String.duplicate("a", 73)}).valid?
+      assert Driver.password_changeset(%Driver{}, %{password: String.duplicate("a", 72)}).valid?
+    end
+  end
+
+  describe "valid_password?/2" do
+    test "true for the right password, false for the wrong one" do
+      driver = %Driver{hashed_password: Bcrypt.hash_pwd_salt("supersecret123")}
+
+      assert Driver.valid_password?(driver, "supersecret123")
+      refute Driver.valid_password?(driver, "nope")
+    end
+
+    test "false when the driver has no password set" do
+      refute Driver.valid_password?(%Driver{hashed_password: nil}, "anything")
+    end
+  end
 end

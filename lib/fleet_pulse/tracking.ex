@@ -150,6 +150,47 @@ defmodule FleetPulse.Tracking do
     end
   end
 
+  @doc """
+  Authenticates a driver by phone and password for token issuance.
+
+  Always spends one bcrypt verification whether or not the phone exists, so an
+  attacker cannot enumerate valid phone numbers by response time.
+  """
+  @spec authenticate_driver(String.t(), String.t()) ::
+          {:ok, Driver.t()} | {:error, :invalid_credentials}
+  def authenticate_driver(phone, password) when is_binary(phone) and is_binary(password) do
+    Driver
+    |> Repo.get_by(phone: phone)
+    |> verify_driver(password)
+  end
+
+  @doc """
+  Sets or replaces a driver's login password (operator action).
+  """
+  @spec set_driver_password(Driver.t(), String.t()) ::
+          {:ok, Driver.t()} | {:error, Driver.changeset()}
+  def set_driver_password(%Driver{} = driver, password) do
+    driver
+    |> Driver.password_changeset(%{password: password})
+    |> Repo.update()
+  end
+
+  @spec verify_driver(Driver.t() | nil, String.t()) ::
+          {:ok, Driver.t()} | {:error, :invalid_credentials}
+  defp verify_driver(%Driver{} = driver, password) do
+    driver_authorised(Driver.valid_password?(driver, password), driver)
+  end
+
+  defp verify_driver(nil, _password) do
+    Bcrypt.no_user_verify()
+    {:error, :invalid_credentials}
+  end
+
+  @spec driver_authorised(boolean(), Driver.t()) ::
+          {:ok, Driver.t()} | {:error, :invalid_credentials}
+  defp driver_authorised(true, driver), do: {:ok, driver}
+  defp driver_authorised(false, _driver), do: {:error, :invalid_credentials}
+
   @spec persist_status(Driver.t(), Driver.status()) ::
           {:ok, Driver.t()} | {:error, Driver.changeset()}
   defp persist_status(driver, status) do
