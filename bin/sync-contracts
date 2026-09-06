@@ -1,0 +1,44 @@
+#!/usr/bin/env sh
+# Fetches the wire contracts this service compiles against.
+#
+# Rust has no kinetix-contracts package: buf publishes TypeScript, Python, C#, Java, Ruby, PHP and
+# Go, and there is no remote plugin for prost/tonic. So this service does what `build.rs` already
+# did — generate from .proto at build time — but from the contract repository at a pinned tag
+# rather than from a copy committed here. `.contracts/` is gitignored, so
+# `git ls-files '*.proto'` stays empty and the S9 exit criterion holds.
+#
+# Pinned to a commit, not just a tag: a tag can be moved, and a moved tag silently changes what
+# this service speaks. The tag is what a reader looks up; the commit is what is verified.
+set -eu
+
+HERE="$(cd "$(dirname "$0")/.." && pwd)"
+REPO="https://github.com/WildanFrananda/kinetix-contracts.git"
+TAG="v1.0.5"
+COMMIT="ff27aecce05b548c5e37217419313c2387aed9bd"
+DEST="$HERE/.contracts"
+
+if [ -d "$DEST/.git" ]; then
+  got="$(git -C "$DEST" rev-parse HEAD)"
+  if [ "$got" = "$COMMIT" ]; then
+    echo "contracts already at $TAG ($COMMIT)"
+    exit 0
+  fi
+  rm -rf "$DEST"
+fi
+
+git clone --depth 1 --branch "$TAG" --quiet "$REPO" "$DEST"
+
+got="$(git -C "$DEST" rev-parse HEAD)"
+if [ "$got" != "$COMMIT" ]; then
+  echo "$TAG resolves to $got, but this service is pinned to $COMMIT"
+  echo "either the tag was moved or the pin is stale; neither should be worked around here"
+  rm -rf "$DEST"
+  exit 1
+fi
+
+test -f "$DEST/proto/fleet/v1/fleet.proto" || {
+  echo "$TAG has no proto/fleet/v1/fleet.proto"
+  exit 1
+}
+
+echo "contracts synced at $TAG ($COMMIT)"

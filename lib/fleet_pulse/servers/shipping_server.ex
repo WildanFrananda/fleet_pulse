@@ -11,6 +11,7 @@ defmodule FleetPulse.Servers.ShippingServer do
 
   require Logger
 
+  alias FleetPulse.Proto.Common.V1.Money
   alias FleetPulse.Proto.Shipping.V1.CourierOption
   alias FleetPulse.Proto.Shipping.V1.EstimateShippingOptionsResponse
   alias FleetPulse.Shipping
@@ -31,15 +32,16 @@ defmodule FleetPulse.Servers.ShippingServer do
     }
 
     Logger.info(
-      "[FleetPulse gRPC Server] EstimateShippingOptions for merchant #{request.merchant_id}"
+      "[FleetPulse gRPC Server] EstimateShippingOptions for merchant " <>
+        inspect(request.merchant_principal_id)
     )
 
     res =
       Shipping.calculate_options(
         origin,
         destination,
-        request.total_weight_kg,
-        request.merchant_id
+        request.total_weight_grams / 1000,
+        request.merchant_principal_id
       )
 
     options =
@@ -48,7 +50,10 @@ defmodule FleetPulse.Servers.ShippingServer do
           service_tier: opt.service_tier,
           service_name: opt.service_name,
           distance_km: opt.distance_km,
-          base_shipping_fee: opt.base_shipping_fee,
+          base_shipping_fee: %Money{
+            amount_minor: round(opt.base_shipping_fee * 100),
+            currency: "IDR"
+          },
           estimated_delivery_time: opt.estimated_delivery_time,
           is_available: opt.is_available,
           unavailable_reason: opt.unavailable_reason || ""

@@ -16,7 +16,7 @@ defmodule FleetPulse.CourierTelemetryServer do
   def dispatch_courier(request, _stream) do
     Logger.info("[FleetPulse gRPC Server] Received DispatchCourier for Order #{request.order_number} (ID: #{request.order_id})")
 
-    case Dispatch.assign_order(request.order_id) do
+    case Dispatch.assign_order(String.to_integer(request.order_id)) do
       {:ok, order, driver} ->
         dispatch_ref = "DISP-" <> Integer.to_string(order.id)
 
@@ -35,7 +35,7 @@ defmodule FleetPulse.CourierTelemetryServer do
           [active_driver | _] ->
             %FleetPulse.Proto.Fleet.V1.DispatchCourierResponse{
               success: true,
-              dispatch_ref: "DISP-ALT-" <> Integer.to_string(request.order_id),
+              dispatch_ref: "DISP-ALT-" <> request.order_id,
               assigned_driver_name: active_driver.name,
               assigned_driver_phone: active_driver.phone || "",
               vehicle: active_driver.vehicle_plate || "",

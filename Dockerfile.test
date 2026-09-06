@@ -27,4 +27,26 @@ RUN set -eu; \
 
 RUN mix deps.get
 
+COPY bin ./bin
+# Copied before the generation step below, which writes into lib/fleet_pulse/proto. The runner no
+# longer mounts lib/ over this: a mount would hide the generated wire types and the suite would
+# compile against nothing.
+COPY lib ./lib
+
+# The same contracts and the same generation as the release image. A test image that compiled
+# against a different copy of the wire types would prove nothing about the one that ships.
+RUN apt-get update \
+  && apt-get install --no-install-recommends -y protobuf-compiler libprotobuf-dev \
+  && rm -rf /var/lib/apt/lists/* \
+  && sh bin/sync-contracts \
+  && mix escript.install hex protobuf --force \
+  && mkdir -p lib/fleet_pulse/proto \
+  && PATH="$PATH:/root/.mix/escripts" protoc \
+       --elixir_out=plugins=grpc,package_prefix=fleet_pulse.proto:lib/fleet_pulse/proto \
+       -I .contracts/proto \
+       -I "$(dpkg -L libprotobuf-dev 2>/dev/null | grep -m1 'timestamp.proto' | sed 's|/google/protobuf/timestamp.proto||')" \
+       .contracts/proto/common/v1/common.proto \
+       .contracts/proto/fleet/v1/fleet.proto \
+       .contracts/proto/shipping/v1/shipping.proto
+
 CMD ["mix", "test"]

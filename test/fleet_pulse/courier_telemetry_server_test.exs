@@ -8,8 +8,8 @@ defmodule FleetPulse.CourierTelemetryServerTest do
     _driver = driver_fixture(%{status: :online})
 
     req = %DispatchCourierRequest{
-      merchant_api_key: "TEST_OMS_KEY",
-      order_id: 888,
+      merchant_principal_id: "11111111-2222-3333-4444-555555555555",
+      order_id: "888",
       order_number: "ORD-ELIXIR-888"
     }
 

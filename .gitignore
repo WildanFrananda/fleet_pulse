@@ -39,3 +39,9 @@ npm-debug.log
 /.vscode
 
 .env
+
+# The wire contracts and the Elixir generated from them. Fetched and generated at build time by
+# bin/sync-contracts and mix protoc — never committed, because a copy of a contract inside a
+# service repository is what kinetix-contracts exists to remove.
+/.contracts/
+/lib/fleet_pulse/proto/
