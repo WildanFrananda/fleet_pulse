@@ -28,10 +28,17 @@ defmodule FleetPulse.Security.IdentityLogin do
   @spec log_in(String.t(), String.t()) :: {:ok, AccessClaims.t()} | {:error, error()}
   def log_in(email, password) when is_binary(email) and is_binary(password) do
     case post_login(email, password) do
-      {:ok, %Req.Response{status: 201, body: %{"accessToken" => token}}} -> verify(token)
-      {:ok, %Req.Response{status: 200, body: %{"accessToken" => token}}} -> verify(token)
-      {:ok, %Req.Response{status: status}} when status in 400..499 -> {:error, :invalid_credentials}
-      other -> unavailable(other)
+      {:ok, %Req.Response{status: 201, body: %{"accessToken" => token}}} ->
+        verify(token)
+
+      {:ok, %Req.Response{status: 200, body: %{"accessToken" => token}}} ->
+        verify(token)
+
+      {:ok, %Req.Response{status: status}} when status in 400..499 ->
+        {:error, :invalid_credentials}
+
+      other ->
+        unavailable(other)
     end
   end
 
@@ -43,9 +50,18 @@ defmodule FleetPulse.Security.IdentityLogin do
 
     Req.post(base <> "/api/v1/auth/login",
       json: %{email: email, password: password},
+      headers: correlation_headers(),
       retry: false,
       receive_timeout: 8_000
     )
+  end
+
+  @spec correlation_headers() :: [{String.t(), String.t()}]
+  defp correlation_headers do
+    case Logger.metadata()[:request_id] do
+      id when is_binary(id) and id != "" -> [{"x-request-id", id}]
+      _absent -> []
+    end
   end
 
   @spec verify(String.t()) :: {:ok, AccessClaims.t()} | {:error, error()}
@@ -54,9 +70,14 @@ defmodule FleetPulse.Security.IdentityLogin do
          :ok <- operator?(claims) do
       {:ok, claims}
     else
-      {:error, :not_an_operator} = refusal -> refusal
+      {:error, :not_an_operator} = refusal ->
+        refusal
+
       {:error, reason} ->
-        Logger.error("[IdentityLogin] identity issued a token this service refused: #{inspect(reason)}")
+        Logger.error(
+          "[IdentityLogin] identity issued a token this service refused: #{inspect(reason)}"
+        )
+
         {:error, :identity_unavailable}
     end
   end
