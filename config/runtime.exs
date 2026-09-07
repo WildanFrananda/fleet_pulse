@@ -23,6 +23,21 @@ end
 config :fleet_pulse, FleetPulseWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+case System.get_env("LOG_LEVEL") do
+  nil ->
+    :ok
+
+  "" ->
+    :ok
+
+  level when level in ~w(emergency alert critical error warning notice info debug) ->
+    config :logger, level: String.to_existing_atom(level)
+
+  other ->
+    raise "LOG_LEVEL is #{inspect(other)}, which is not a Logger level. " <>
+            "Use one of: emergency alert critical error warning notice info debug."
+end
+
 if config_env() == :dev do
   # Reload browser tabs when matching files change.
   config :fleet_pulse, FleetPulseWeb.Endpoint,
