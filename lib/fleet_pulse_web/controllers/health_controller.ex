@@ -8,6 +8,13 @@ defmodule FleetPulseWeb.HealthController do
   `ready` answers "can we actually serve?" — it pings the database. Use it for
   a readiness probe / load-balancer health check: a node with no database
   should be pulled from rotation, not restarted.
+
+  Both answer JSON in the shape every other service in the estate uses, which
+  `scripts/probe_conformance.sh` asserts. They used to send the bare strings
+  "ok" and "ready": the right semantics in the wrong shape, so anything reading
+  the platform's probes had to special-case this one service. Neither body names
+  the framework, its version or the driver's error — the routes are
+  unauthenticated by necessity, because the orchestrator holds no token.
   """
 
   use FleetPulseWeb, :controller
@@ -16,7 +23,9 @@ defmodule FleetPulseWeb.HealthController do
   alias FleetPulse.Repo
 
   @spec live(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def live(conn, _params), do: send_resp(conn, 200, "ok")
+  def live(conn, _params) do
+    json(conn, %{status: "ok", service: "kinetix-matching-service"})
+  end
 
   @spec ready(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def ready(conn, _params) do
@@ -24,8 +33,15 @@ defmodule FleetPulseWeb.HealthController do
   end
 
   @spec reply(boolean(), Plug.Conn.t()) :: Plug.Conn.t()
-  defp reply(true, conn), do: send_resp(conn, 200, "ready")
-  defp reply(false, conn), do: send_resp(conn, 503, "not ready")
+  defp reply(true, conn) do
+    json(conn, %{status: "ok", database: "reachable"})
+  end
+
+  defp reply(false, conn) do
+    conn
+    |> put_status(:service_unavailable)
+    |> json(%{status: "unavailable", database: "unreachable"})
+  end
 
   @spec database_ok?() :: boolean()
   defp database_ok? do

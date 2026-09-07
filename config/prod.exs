@@ -15,7 +15,7 @@ config :fleet_pulse, FleetPulseWeb.Endpoint,
   force_ssl: [
     rewrite_on: [:x_forwarded_proto],
     exclude: [
-      # paths: ["/health"],
+      paths: ["/health", "/health/ready"],
       hosts: ["localhost", "127.0.0.1"]
     ]
   ]

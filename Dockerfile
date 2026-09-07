@@ -110,7 +110,7 @@ RUN mix release
 FROM ${RUNNER_IMAGE} AS final
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 locales ca-certificates \
+  && apt-get install -y --no-install-recommends libstdc++6 openssl libncurses6 locales ca-certificates curl \
   && rm -rf /var/lib/apt/lists/*
 
 # Set the locale
@@ -133,7 +133,11 @@ COPY --from=builder --chown=nobody:root /app/_build/${MIX_ENV}/rel/fleet_pulse .
 USER nobody
 
 
+# Probe the endpoint the service actually ships. This used to run `Repo.query!("SELECT 1")` over
+# `fleet_pulse rpc`, which asked the same question of the database but never touched /health/ready
+# — so the endpoint every other service is probed on sat unexercised here and could rot unnoticed.
+# curl is in the runner image for this one purpose.
 HEALTHCHECK --interval=10s --timeout=10s --start-period=30s --retries=3 \
-    CMD /app/bin/fleet_pulse rpc 'FleetPulse.Repo.query!("SELECT 1"); :ok' > /dev/null || exit 1
+    CMD curl -fsS http://127.0.0.1:4000/health/ready > /dev/null || exit 1
 
 CMD ["/app/bin/server"]
