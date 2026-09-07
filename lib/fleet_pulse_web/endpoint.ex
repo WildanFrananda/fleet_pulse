@@ -13,11 +13,17 @@ defmodule FleetPulseWeb.Endpoint do
     longpoll: [connect_info: [session: @session_options]]
 
   socket "/driver", FleetPulseWeb.DriverSocket,
-    websocket: [connect_info: [:peer_data, :user_agent]],
+    websocket: [
+      connect_info: [:peer_data, :user_agent],
+      error_handler: {FleetPulseWeb.DriverSocket, :handle_error, []}
+    ],
     longpoll: false
 
   socket "/merchant", FleetPulseWeb.MerchantSocket,
-    websocket: [connect_info: [:peer_data, :user_agent]],
+    websocket: [
+      connect_info: [:peer_data, :user_agent],
+      error_handler: {FleetPulseWeb.MerchantSocket, :handle_error, []}
+    ],
     longpoll: false
 
   plug Plug.Static,

@@ -1,30 +1,6 @@
 defmodule FleetPulse.Security.TokenVerifier do
   @moduledoc """
   Verifies identity's access tokens against its published JWKS.
-
-  Verified locally rather than asked about per request: making identity answer for every location
-  ping on the platform would make it a hard dependency of everything, and this service takes
-  pings by the second.
-
-  Keys are fetched once and refetched when a token names a key this process has not seen — which
-  is the ordinary shape of a rotation, so a rotation lands without a restart.
-
-  A run of failed fetches opens a circuit. The fetch runs inside `handle_call`, so every request
-  naming an uncached key queues behind it, and a failed fetch caches nothing: an identity that is
-  down would otherwise mean one fresh HTTP attempt per inbound token, all serialised through this
-  one process, until callers give up at their own timeout. While the circuit is open the miss is
-  refused in microseconds instead, and the first fetch after the window is the trial call. The
-  window is deliberately short — a rotation arriving during an open circuit is rejected until it
-  closes.
-
-  The window is kept on the monotonic clock, which starts far below zero on this runtime: a closed
-  circuit is `nil` rather than a timestamp in the past, or it would read as open from boot until
-  the clock climbed to it. It runs from when an attempt failed rather than from when it began,
-  because an attempt that times out can outlast the window itself.
-
-  What this replaces: `FleetPulse.Clients.IdentityClient.validate_token/1`, which opened a gRPC
-  connection to identity, closed it again, and returned `{:ok, %{valid: true}}`. It never looked
-  at the token. Any string was valid as long as the TCP connect succeeded.
   """
 
   use GenServer
@@ -33,7 +9,7 @@ defmodule FleetPulse.Security.TokenVerifier do
 
   alias FleetPulse.Security.AccessClaims
 
-  @type error :: :invalid_token | :malformed_claims
+  @type error :: :invalid_token | :malformed_claims | :identity_unavailable
 
   @typep state :: %{
            keys: %{String.t() => JOSE.JWK.t()},
@@ -42,18 +18,14 @@ defmodule FleetPulse.Security.TokenVerifier do
            open_until: integer() | nil
          }
 
+  @typep freshness :: :fetched | :unavailable
+
   @failures_before_open 3
   @open_for_ms 5_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
-  @doc """
-  Verifies a token and returns its claims.
-
-  The reason is deliberately coarse: "signature invalid" versus "expired" versus "wrong audience"
-  tells a forger which part to fix next.
-  """
   @spec verify_access(String.t()) :: {:ok, AccessClaims.t()} | {:error, error()}
   def verify_access(token) when is_binary(token) do
     with {:ok, kid} <- kid_of(token),
@@ -69,13 +41,9 @@ defmodule FleetPulse.Security.TokenVerifier do
 
   def verify_access(_token), do: {:error, :invalid_token}
 
-  @doc """
-  Refetches the JWKS. Returns how many usable keys it found.
-  """
   @spec refresh!() :: non_neg_integer()
   def refresh!, do: GenServer.call(__MODULE__, :refresh, 15_000)
 
-  # ── server ──────────────────────────────────────────────────────────────────────────────────
 
   @impl GenServer
   def init(_opts) do
@@ -89,42 +57,50 @@ defmodule FleetPulse.Security.TokenVerifier do
         {:reply, {:ok, jwk}, state}
 
       :error ->
-        state = fetch(state)
+        {freshness, state} = fetch(state)
 
         case Map.fetch(state.keys, kid) do
           {:ok, jwk} -> {:reply, {:ok, jwk}, state}
-          :error -> {:reply, {:error, :invalid_token}, state}
+          :error -> {:reply, {:error, miss(freshness)}, state}
         end
     end
   end
 
   @impl GenServer
   def handle_call(:refresh, _from, state) do
-    state = fetch(state)
+    {_freshness, state} = fetch(state)
     {:reply, map_size(state.keys), state}
   end
 
-  @spec fetch(state()) :: state()
+  @spec miss(freshness()) :: :invalid_token | :identity_unavailable
+  defp miss(:fetched), do: :invalid_token
+  defp miss(:unavailable), do: :identity_unavailable
+
+  @spec fetch(state()) :: {freshness(), state()}
   defp fetch(state), do: fetch(state, System.monotonic_time(:millisecond))
 
-  @spec fetch(state(), integer()) :: state()
+  @spec fetch(state(), integer()) :: {freshness(), state()}
   defp fetch(%{open_until: open_until} = state, now)
-       when is_integer(open_until) and now < open_until,
-       do: state
+       when is_integer(open_until) and now < open_until do
+    :telemetry.execute([:fleet_pulse, :token_verifier, :refused_while_open], %{count: 1}, %{})
+    {:unavailable, state}
+  end
 
   defp fetch(state, _now) do
-    case Req.get(state.url,
-           retry: false,
-           connect_options: [timeout: 2_000],
-           receive_timeout: 5_000,
-           request_timeout: 3_000
-         ) do
+    case get_jwks(state.url) do
       {:ok, %Req.Response{status: 200, body: %{"keys" => keys}}} when is_list(keys) ->
-        %{state | keys: import_keys(keys), failures: 0, open_until: nil}
+        {:fetched, %{state | keys: import_keys(keys), failures: 0, open_until: nil}}
 
       other ->
-        fetch_failed(state, System.monotonic_time(:millisecond), other)
+        {:unavailable, fetch_failed(state, System.monotonic_time(:millisecond), other)}
     end
+  end
+
+  @spec get_jwks(String.t()) :: {:ok, Req.Response.t()} | {:error, term()}
+  defp get_jwks(url) do
+    Req.get(url, retry: false, connect_options: [timeout: 2_000], request_timeout: 3_000)
+  rescue
+    error -> {:error, error}
   end
 
   @spec fetch_failed(state(), integer(), term()) :: state()

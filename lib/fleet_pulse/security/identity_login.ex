@@ -79,6 +79,9 @@ defmodule FleetPulse.Security.IdentityLogin do
       {:error, :not_an_operator} = refusal ->
         refusal
 
+      {:error, :identity_unavailable} = unreachable ->
+        unreachable
+
       {:error, reason} ->
         Logger.error(
           "[IdentityLogin] identity issued a token this service refused: #{inspect(reason)}"

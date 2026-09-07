@@ -88,6 +88,9 @@ defmodule FleetPulseWeb.Telemetry do
       ),
       counter("fleet_pulse.dispatch.order_delivered.count"),
       counter("fleet_pulse.dispatch.order_cancelled.count"),
+      counter("fleet_pulse.token_verifier.refused_while_open.count",
+        description: "Token checks refused without asking identity, because its circuit was open"
+      ),
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),
       summary("vm.total_run_queue_lengths.cpu"),

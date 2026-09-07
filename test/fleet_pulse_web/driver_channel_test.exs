@@ -73,6 +73,24 @@ defmodule FleetPulseWeb.DriverChannelTest do
     end
   end
 
+  describe "handle_error/2" do
+    test "answers 503 when identity could not be reached to check the token" do
+      conn =
+        DriverSocket.handle_error(
+          Plug.Test.conn(:get, "/driver/websocket"),
+          :identity_unavailable
+        )
+
+      assert conn.status == 503
+    end
+
+    test "answers 403 to a token that was actually refused" do
+      conn = DriverSocket.handle_error(Plug.Test.conn(:get, "/driver/websocket"), :invalid_token)
+
+      assert conn.status == 403
+    end
+  end
+
   describe "join/3 authorisation" do
     test "a driver may join its own topic", %{driver: driver, socket: socket} do
       assert {:ok, _reply, _channel} = subscribe_and_join(socket, "driver:#{driver.id}")

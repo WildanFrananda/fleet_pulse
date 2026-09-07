@@ -1,14 +1,6 @@
 defmodule FleetPulseWeb.Plugs.IdentityAuth do
   @moduledoc """
   Authenticates a JSON API request against identity's RS256 access tokens.
-
-  What this replaces: `FleetPulseWeb.Plugs.ApiKeyAuth`, and with it the whole partner-API-key
-  mechanism — the `api_keys` table, `FleetPulse.Api`, and `FleetPulse.Api.Key`. Kinetix will have
-  no third-party integrations, so a second class of credential existed only to be a second thing
-  that could leak. First-party callers present an identity token like everybody else.
-
-  The verified caller is assigned to `:current_caller` and is the ONLY identity anything
-  downstream may read. A `X-User-Id` header grants nothing.
   """
 
   import Plug.Conn
@@ -44,6 +36,7 @@ defmodule FleetPulseWeb.Plugs.IdentityAuth do
   defp grant("bearer", token, conn) do
     case TokenVerifier.verify_access(token) do
       {:ok, claims} -> assign(conn, :current_caller, claims)
+      {:error, :identity_unavailable} -> unavailable(conn)
       {:error, _reason} -> unauthorized(conn)
     end
   end
@@ -55,6 +48,14 @@ defmodule FleetPulseWeb.Plugs.IdentityAuth do
     conn
     |> put_status(:unauthorized)
     |> json(%{error: "unauthorized"})
+    |> halt()
+  end
+
+  @spec unavailable(Plug.Conn.t()) :: Plug.Conn.t()
+  defp unavailable(conn) do
+    conn
+    |> put_status(:service_unavailable)
+    |> json(%{error: "identity_unavailable"})
     |> halt()
   end
 end

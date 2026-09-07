@@ -1,11 +1,6 @@
 defmodule FleetPulseWeb.MerchantSocket do
   @moduledoc """
   The websocket a merchant application connects to for real-time order and telemetry updates.
-
-  What this replaces: `FleetPulseWeb.MerchantToken`, signed by this service with its own
-  `secret_key_base` and valid for thirty days. Identity is the only minter on this platform, and
-  a thirty-day credential this service could neither rotate nor revoke was the longest-lived one
-  anywhere on it.
   """
 
   use Phoenix.Socket
@@ -15,7 +10,12 @@ defmodule FleetPulseWeb.MerchantSocket do
 
   channel "merchant:*", FleetPulseWeb.MerchantChannel
 
-  @type error :: :invalid_token | :malformed_claims | :not_a_merchant | :missing_token
+  @type error ::
+          :invalid_token
+          | :malformed_claims
+          | :not_a_merchant
+          | :missing_token
+          | :identity_unavailable
 
   @impl Phoenix.Socket
   @spec connect(map(), Phoenix.Socket.t(), map()) ::
@@ -30,6 +30,10 @@ defmodule FleetPulseWeb.MerchantSocket do
   end
 
   def connect(_params, _socket, _connect_info), do: {:error, :missing_token}
+
+  @spec handle_error(Plug.Conn.t(), error()) :: Plug.Conn.t()
+  def handle_error(conn, :identity_unavailable), do: Plug.Conn.send_resp(conn, 503, "")
+  def handle_error(conn, _reason), do: Plug.Conn.send_resp(conn, 403, "")
 
   @impl Phoenix.Socket
   @spec id(Phoenix.Socket.t()) :: String.t()
