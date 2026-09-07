@@ -9,6 +9,19 @@ defmodule FleetPulse.Security.TokenVerifier do
   Keys are fetched once and refetched when a token names a key this process has not seen — which
   is the ordinary shape of a rotation, so a rotation lands without a restart.
 
+  A run of failed fetches opens a circuit. The fetch runs inside `handle_call`, so every request
+  naming an uncached key queues behind it, and a failed fetch caches nothing: an identity that is
+  down would otherwise mean one fresh HTTP attempt per inbound token, all serialised through this
+  one process, until callers give up at their own timeout. While the circuit is open the miss is
+  refused in microseconds instead, and the first fetch after the window is the trial call. The
+  window is deliberately short — a rotation arriving during an open circuit is rejected until it
+  closes.
+
+  The window is kept on the monotonic clock, which starts far below zero on this runtime: a closed
+  circuit is `nil` rather than a timestamp in the past, or it would read as open from boot until
+  the clock climbed to it. It runs from when an attempt failed rather than from when it began,
+  because an attempt that times out can outlast the window itself.
+
   What this replaces: `FleetPulse.Clients.IdentityClient.validate_token/1`, which opened a gRPC
   connection to identity, closed it again, and returned `{:ok, %{valid: true}}`. It never looked
   at the token. Any string was valid as long as the TCP connect succeeded.
@@ -21,6 +34,16 @@ defmodule FleetPulse.Security.TokenVerifier do
   alias FleetPulse.Security.AccessClaims
 
   @type error :: :invalid_token | :malformed_claims
+
+  @typep state :: %{
+           keys: %{String.t() => JOSE.JWK.t()},
+           url: String.t(),
+           failures: non_neg_integer(),
+           open_until: integer() | nil
+         }
+
+  @failures_before_open 3
+  @open_for_ms 5_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -56,7 +79,7 @@ defmodule FleetPulse.Security.TokenVerifier do
 
   @impl GenServer
   def init(_opts) do
-    {:ok, %{keys: %{}, url: require_env("IDENTITY_JWKS_URL")}}
+    {:ok, %{keys: %{}, url: require_env("IDENTITY_JWKS_URL"), failures: 0, open_until: nil}}
   end
 
   @impl GenServer
@@ -81,16 +104,43 @@ defmodule FleetPulse.Security.TokenVerifier do
     {:reply, map_size(state.keys), state}
   end
 
-  @spec fetch(map()) :: map()
-  defp fetch(state) do
-    case Req.get(state.url, retry: false, receive_timeout: 5_000) do
+  @spec fetch(state()) :: state()
+  defp fetch(state), do: fetch(state, System.monotonic_time(:millisecond))
+
+  @spec fetch(state(), integer()) :: state()
+  defp fetch(%{open_until: open_until} = state, now)
+       when is_integer(open_until) and now < open_until,
+       do: state
+
+  defp fetch(state, _now) do
+    case Req.get(state.url,
+           retry: false,
+           connect_options: [timeout: 2_000],
+           receive_timeout: 5_000,
+           request_timeout: 3_000
+         ) do
       {:ok, %Req.Response{status: 200, body: %{"keys" => keys}}} when is_list(keys) ->
-        %{state | keys: import_keys(keys)}
+        %{state | keys: import_keys(keys), failures: 0, open_until: nil}
 
       other ->
-        Logger.error("[TokenVerifier] #{state.url} did not return a JWKS: #{inspect(other)}")
-        state
+        fetch_failed(state, System.monotonic_time(:millisecond), other)
     end
+  end
+
+  @spec fetch_failed(state(), integer(), term()) :: state()
+  defp fetch_failed(%{failures: failures} = state, now, other)
+       when failures + 1 >= @failures_before_open do
+    Logger.error(
+      "[TokenVerifier] #{state.url} did not return a JWKS: #{inspect(other)} — " <>
+        "asking no further for #{@open_for_ms}ms"
+    )
+
+    %{state | failures: @failures_before_open, open_until: now + @open_for_ms}
+  end
+
+  defp fetch_failed(state, _now, other) do
+    Logger.error("[TokenVerifier] #{state.url} did not return a JWKS: #{inspect(other)}")
+    %{state | failures: state.failures + 1}
   end
 
   @spec import_keys([map()]) :: %{String.t() => JOSE.JWK.t()}

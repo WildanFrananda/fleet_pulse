@@ -16,15 +16,13 @@ defmodule FleetPulse.Security.IdentityLogin do
   alias FleetPulse.Security.AccessClaims
   alias FleetPulse.Security.TokenVerifier
 
-  @type error :: :invalid_credentials | :not_an_operator | :identity_unavailable
+  @type error ::
+          :invalid_credentials
+          | :not_an_operator
+          | :two_factor_required
+          | :rate_limited
+          | :identity_unavailable
 
-  @doc """
-  Logs in against identity and returns the verified claims.
-
-  The token is verified locally afterwards rather than trusted because identity handed it over:
-  the same signature, issuer, audience and expiry checks apply to it as to any token arriving
-  from a client, so there is exactly one place that decides a token is good.
-  """
   @spec log_in(String.t(), String.t()) :: {:ok, AccessClaims.t()} | {:error, error()}
   def log_in(email, password) when is_binary(email) and is_binary(password) do
     case post_login(email, password) do
@@ -33,6 +31,12 @@ defmodule FleetPulse.Security.IdentityLogin do
 
       {:ok, %Req.Response{status: 200, body: %{"accessToken" => token}}} ->
         verify(token)
+
+      {:ok, %Req.Response{status: 200, body: %{"mfaRequired" => true}}} ->
+        {:error, :two_factor_required}
+
+      {:ok, %Req.Response{status: 429}} ->
+        {:error, :rate_limited}
 
       {:ok, %Req.Response{status: status}} when status in 400..499 ->
         {:error, :invalid_credentials}
@@ -52,7 +56,9 @@ defmodule FleetPulse.Security.IdentityLogin do
       json: %{email: email, password: password},
       headers: correlation_headers(),
       retry: false,
-      receive_timeout: 8_000
+      connect_options: [timeout: 2_000],
+      receive_timeout: 8_000,
+      request_timeout: 10_000
     )
   end
 

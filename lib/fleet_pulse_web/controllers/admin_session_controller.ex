@@ -28,6 +28,21 @@ defmodule FleetPulseWeb.AdminSessionController do
       {:error, reason} when reason in [:invalid_credentials, :not_an_operator] ->
         render(conn, :new, error_message: "Invalid email or password")
 
+      {:error, :rate_limited} ->
+        conn
+        |> put_status(:too_many_requests)
+        |> render(:new,
+          error_message: "Too many sign-in attempts. Wait a minute, then try again."
+        )
+
+      {:error, :two_factor_required} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> render(:new,
+          error_message:
+            "This account uses two-factor authentication, which this console cannot complete yet."
+        )
+
       {:error, :identity_unavailable} ->
         conn
         |> put_status(:service_unavailable)
