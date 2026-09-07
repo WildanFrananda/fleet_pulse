@@ -59,3 +59,5 @@ System.put_env("IDENTITY_JWKS_URL", "http://127.0.0.1:4444/.well-known/jwks.json
 System.put_env("IDENTITY_HTTP_URL", System.get_env("IDENTITY_HTTP_URL") || "http://127.0.0.1:1")
 
 config :fleet_pulse, start_grpc_server: false
+
+config :swoosh, :api_client, false

@@ -44,7 +44,6 @@ defmodule FleetPulseWeb.ConnCase do
   def log_in_operator(conn, overrides \\ []) do
     claims = %AccessClaims{
       principal_id: Keyword.get(overrides, :principal_id, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
-      user_id: Keyword.get(overrides, :user_id, 1),
       email: Keyword.get(overrides, :email, "operator@kinetix.test"),
       role: Keyword.get(overrides, :role, "admin")
     }

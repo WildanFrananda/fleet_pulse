@@ -13,8 +13,8 @@ defmodule FleetPulse.Shipping do
   Calculates available shipping options and rates for a given origin and destination.
   """
   @spec calculate_options(coords(), coords(), float(), integer() | nil) :: map()
-  def calculate_options(origin, destination, weight_kg, merchant_id \\ nil) do
-    _merchant_id = merchant_id
+  def calculate_options(origin, destination, weight_kg, merchant_principal_id \\ nil) do
+    _merchant_principal_id = merchant_principal_id
     dist_km = Geo.distance_km(to_coordinates(origin), to_coordinates(destination))
     rounded_dist = Float.round(dist_km, 2)
 

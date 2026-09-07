@@ -12,7 +12,6 @@ defmodule FleetPulseWeb.AdminAuthTest do
 
     operator = %AccessClaims{
       principal_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-      user_id: 7,
       email: "operator@kinetix.test",
       role: "admin"
     }

@@ -3,16 +3,19 @@ defmodule FleetPulse.Security.AccessClaims do
   The claims an identity access token carries, after verification.
 
   A struct rather than the decoder's raw map, so nothing downstream reads a claim that was never
-  asserted. `principal_id` is a UUID and `user_id` is the account id; the two collided across
-  services before principals existed, so they are kept apart by name and by type.
+  asserted.
+
+  `uid` is deliberately absent. It is identity's account id, and while this struct carried it the
+  merchant socket and the orders table both used it — so a merchant reaching this service over
+  gRPC (which has always carried `merchant_principal_id`) and the same merchant reaching it over
+  HTTP were stored under two different names, and neither could be matched to the other.
   """
 
-  @enforce_keys [:principal_id, :user_id, :email, :role]
-  defstruct [:principal_id, :user_id, :email, :role]
+  @enforce_keys [:principal_id, :email, :role]
+  defstruct [:principal_id, :email, :role]
 
   @type t :: %__MODULE__{
           principal_id: String.t(),
-          user_id: pos_integer(),
           email: String.t(),
           role: String.t()
         }
@@ -26,11 +29,9 @@ defmodule FleetPulse.Security.AccessClaims do
   @spec from_payload(map()) :: {:ok, t()} | {:error, :malformed_claims}
   def from_payload(payload) when is_map(payload) do
     with {:ok, principal_id} <- text(payload, "sub"),
-         {:ok, user_id} <- number(payload, "uid"),
          {:ok, email} <- text(payload, "email"),
          {:ok, role} <- text(payload, "role") do
-      {:ok,
-       %__MODULE__{principal_id: principal_id, user_id: user_id, email: email, role: role}}
+      {:ok, %__MODULE__{principal_id: principal_id, email: email, role: role}}
     end
   end
 
@@ -40,14 +41,6 @@ defmodule FleetPulse.Security.AccessClaims do
   defp text(payload, name) do
     case Map.get(payload, name) do
       value when is_binary(value) and value != "" -> {:ok, value}
-      _missing -> {:error, :malformed_claims}
-    end
-  end
-
-  @spec number(map(), String.t()) :: {:ok, pos_integer()} | {:error, :malformed_claims}
-  defp number(payload, name) do
-    case Map.get(payload, name) do
-      value when is_integer(value) and value > 0 -> {:ok, value}
       _missing -> {:error, :malformed_claims}
     end
   end

@@ -19,7 +19,7 @@ defmodule FleetPulseWeb.Api.V1.MerchantOrderController do
   @spec create(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def create(conn, %{"order" => order_params}) when is_map(order_params) do
     caller = conn.assigns.current_caller
-    attrs = Map.put(order_params, "merchant_id", caller.user_id)
+    attrs = Map.put(order_params, "merchant_principal_id", caller.principal_id)
 
     case Dispatch.create_order(attrs) do
       {:ok, %Order{} = order} ->
@@ -45,7 +45,7 @@ defmodule FleetPulseWeb.Api.V1.MerchantOrderController do
     %{
       id: order.id,
       status: order.status,
-      merchant_id: order.merchant_id,
+      merchant_principal_id: order.merchant_principal_id,
       weight_kg: order.weight_kg,
       driver_id: order.driver_id,
       pickup: %{latitude: order.pickup_latitude, longitude: order.pickup_longitude},

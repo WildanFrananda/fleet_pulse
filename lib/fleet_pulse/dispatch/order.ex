@@ -37,7 +37,7 @@ defmodule FleetPulse.Dispatch.Order do
           weight_kg: non_neg_integer() | nil,
           status: status() | nil,
           driver_id: Types.id() | nil,
-          merchant_id: integer() | nil,
+          merchant_principal_id: integer() | nil,
           pod_photo_url: String.t() | nil,
           pod_signature: String.t() | nil,
           driver: Driver.t() | Ecto.Association.NotLoaded.t() | nil,
@@ -66,7 +66,7 @@ defmodule FleetPulse.Dispatch.Order do
     field :weight_kg, :integer, default: 0
     field :status, Ecto.Enum, values: @statuses, default: :pending
     field :assigned_at, :utc_datetime_usec
-    field :merchant_id, :integer
+    field :merchant_principal_id, :string
     field :pod_photo_url, :string
     field :pod_signature, :string
 
@@ -87,7 +87,7 @@ defmodule FleetPulse.Dispatch.Order do
   @spec changeset(t(), map()) :: changeset()
   def changeset(%__MODULE__{} = order, attrs) do
     order
-    |> cast(attrs, @required_fields ++ [:weight_kg, :merchant_id])
+    |> cast(attrs, @required_fields ++ [:weight_kg, :merchant_principal_id])
     |> validate_required(@required_fields)
     |> validate_coordinate(:pickup_latitude, -90, 90)
     |> validate_coordinate(:pickup_longitude, -180, 180)

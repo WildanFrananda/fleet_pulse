@@ -23,7 +23,7 @@ defmodule FleetPulseWeb.MerchantSocket do
   def connect(%{"token" => token}, socket, _connect_info) when is_binary(token) do
     with {:ok, %AccessClaims{} = claims} <- TokenVerifier.verify_access(token),
          :ok <- merchant?(claims) do
-      {:ok, assign(socket, :merchant_id, claims.user_id)}
+      {:ok, assign(socket, :merchant_principal_id, claims.principal_id)}
     else
       {:error, reason} -> {:error, reason}
     end
@@ -33,7 +33,7 @@ defmodule FleetPulseWeb.MerchantSocket do
 
   @impl Phoenix.Socket
   @spec id(Phoenix.Socket.t()) :: String.t()
-  def id(socket), do: "merchant_socket:#{socket.assigns.merchant_id}"
+  def id(socket), do: "merchant_socket:#{socket.assigns.merchant_principal_id}"
 
   @spec merchant?(AccessClaims.t()) :: :ok | {:error, :not_a_merchant}
   defp merchant?(%AccessClaims{role: "seller"}), do: :ok

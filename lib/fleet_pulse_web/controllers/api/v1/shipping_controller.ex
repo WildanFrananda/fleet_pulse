@@ -17,12 +17,12 @@ defmodule FleetPulseWeb.Api.V1.ShippingController do
     d_lat_f = to_float(d_lat)
     d_lng_f = to_float(d_lng)
     weight_f = to_float(weight)
-    merchant_id = params["merchant_id"]
+    merchant_principal_id = params["merchant_principal_id"]
 
     origin = %{latitude: o_lat_f, longitude: o_lng_f}
     destination = %{latitude: d_lat_f, longitude: d_lng_f}
 
-    result = Shipping.calculate_options(origin, destination, weight_f, merchant_id)
+    result = Shipping.calculate_options(origin, destination, weight_f, merchant_principal_id)
     json(conn, result)
   end
 
