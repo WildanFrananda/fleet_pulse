@@ -1,6 +1,6 @@
 defmodule FleetPulse.GrpcDrain do
   @moduledoc """
-  Stops the gRPC server taking new calls on SIGTERM, then waits for the ones already running.
+  Holds the count of gRPC calls in flight, and waits for them at shutdown.
   """
 
   use GenServer
@@ -14,7 +14,7 @@ defmodule FleetPulse.GrpcDrain do
   @default_budget_ms 5_000
   @shutdown_slack_ms 1_000
 
-  @typep state :: %{listener: String.t() | nil, budget_ms: pos_integer()}
+  @typep state :: %{budget_ms: pos_integer()}
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
@@ -34,11 +34,14 @@ defmodule FleetPulse.GrpcDrain do
   @spec left() :: :ok
   def left, do: add(@in_flight, -1)
 
-  @spec in_flight() :: non_neg_integer()
+  @spec in_flight() :: integer()
   def in_flight, do: read(@in_flight)
 
   @spec draining?() :: boolean()
   def draining?, do: read(@draining) > 0
+
+  @spec refuse_new_calls() :: :ok
+  def refuse_new_calls, do: add(@draining, 1)
 
   @impl GenServer
   @spec init(keyword()) :: {:ok, state()}
@@ -46,25 +49,24 @@ defmodule FleetPulse.GrpcDrain do
     Process.flag(:trap_exit, true)
     :persistent_term.put(@counters, :counters.new(2, [:write_concurrency]))
 
-    {:ok, %{listener: listener(), budget_ms: budget_ms()}}
+    {:ok, %{budget_ms: budget_ms()}}
   end
 
   @impl GenServer
   @spec terminate(term(), state()) :: :ok
   def terminate(_reason, state) do
-    add(@draining, 1)
-    suspend(state.listener)
+    refuse_new_calls()
 
     (System.monotonic_time(:millisecond) + state.budget_ms)
     |> wait()
     |> report()
   end
 
-  @spec wait(integer()) :: non_neg_integer()
+  @spec wait(integer()) :: integer()
   defp wait(deadline), do: drain(in_flight(), deadline)
 
-  @spec drain(non_neg_integer(), integer()) :: non_neg_integer()
-  defp drain(0, _deadline), do: 0
+  @spec drain(integer(), integer()) :: integer()
+  defp drain(remaining, _deadline) when remaining <= 0, do: remaining
 
   defp drain(remaining, deadline) do
     case System.monotonic_time(:millisecond) < deadline do
@@ -77,42 +79,21 @@ defmodule FleetPulse.GrpcDrain do
     end
   end
 
-  @spec report(non_neg_integer()) :: :ok
+  @spec report(integer()) :: :ok
   defp report(0), do: Logger.info("gRPC drained; no calls left in flight")
+
+  defp report(remaining) when remaining < 0 do
+    Logger.warning(
+      "gRPC in-flight count is #{remaining}, which cannot be a number of calls; the counter was " <>
+        "replaced while calls were running, so this drain cannot say what it waited for"
+    )
+  end
 
   defp report(remaining) do
     Logger.warning(
       "gRPC drain budget expired with #{remaining} call(s) still in flight; " <>
         "they are cut off when the listener stops"
     )
-  end
-
-  @spec suspend(String.t() | nil) :: :ok
-  defp suspend(nil), do: :ok
-
-  defp suspend(ref) do
-    case :ranch.suspend_listener(ref) do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("could not suspend #{ref}: #{inspect(reason)}")
-    end
-  end
-
-  @spec listener() :: String.t() | nil
-  defp listener do
-    ref = inspect(FleetPulse.GrpcEndpoint)
-
-    listener(ref, Map.has_key?(:ranch.info(), ref))
-  end
-
-  @spec listener(String.t(), boolean()) :: String.t() | nil
-  defp listener(ref, true), do: ref
-
-  defp listener(ref, false) do
-    Logger.warning(
-      "no ranch listener named #{ref}; the gRPC port will keep accepting connections while draining"
-    )
-
-    nil
   end
 
   @spec budget_ms() :: pos_integer()
@@ -130,7 +111,7 @@ defmodule FleetPulse.GrpcDrain do
     end
   end
 
-  @spec read(pos_integer()) :: non_neg_integer()
+  @spec read(pos_integer()) :: integer()
   defp read(index) do
     case :persistent_term.get(@counters, nil) do
       nil -> 0

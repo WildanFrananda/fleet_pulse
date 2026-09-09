@@ -1,6 +1,8 @@
 defmodule FleetPulseWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :fleet_pulse
 
+  @before_compile FleetPulseWeb.HttpMetrics
+
   @session_options [
     store: :cookie,
     key: "_fleet_pulse_key",
@@ -30,8 +32,6 @@ defmodule FleetPulseWeb.Endpoint do
     ],
     longpoll: false,
     drainer: @drainer
-
-  plug FleetPulseWeb.Plugs.HttpMetrics
 
   plug Plug.Static,
     at: "/",

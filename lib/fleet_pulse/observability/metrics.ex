@@ -3,7 +3,7 @@ defmodule FleetPulse.Observability.Metrics do
   The estate's metric vocabulary, and the Prometheus registry that serves it.
   """
 
-  import Telemetry.Metrics, only: [counter: 2, distribution: 2, last_value: 2]
+  import Telemetry.Metrics, only: [counter: 2, distribution: 2, last_value: 2, sum: 2]
 
   @registry :kinetix_prometheus
   @service "kinetix-matching-service"
@@ -29,9 +29,6 @@ defmodule FleetPulse.Observability.Metrics do
     )
   end
 
-  @doc """
-  The exposition body, or the reason we could not produce one.
-  """
   @spec scrape() :: {:ok, String.t()} | {:error, String.t()}
   def scrape do
     :telemetry.execute(@build_info, %{value: 1}, %{service: @service, version: version()})
@@ -44,7 +41,7 @@ defmodule FleetPulse.Observability.Metrics do
   end
 
   @spec definitions() :: [Telemetry.Metrics.t()]
-  defp definitions do
+  def definitions do
     [
       counter("kinetix.http.requests.total",
         event_name: @http_stop,
@@ -59,8 +56,9 @@ defmodule FleetPulse.Observability.Metrics do
         reporter_options: [buckets: @buckets],
         description: "Time to answer an HTTP request, in seconds."
       ),
-      counter("kinetix.grpc.server.calls.total",
+      sum("kinetix.grpc.server.calls.total",
         event_name: @grpc_server_call,
+        measurement: :count,
         tags: [:grpc_method, :grpc_code],
         description: "gRPC calls this server answered, by method and canonical status code."
       ),

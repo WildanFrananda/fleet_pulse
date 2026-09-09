@@ -14,8 +14,15 @@ defmodule FleetPulse.GrpcDrainTest do
   end
 
   defp start_drain do
-    capture_log(fn -> start_supervised!(GrpcDrain) end)
+    start_supervised!(GrpcDrain)
     :ok
+  end
+
+  defp start_drain(budget_ms) do
+    Application.put_env(:fleet_pulse, GrpcDrain, budget_ms: budget_ms)
+    on_exit(fn -> Application.put_env(:fleet_pulse, GrpcDrain, budget_ms: 5_000) end)
+
+    start_drain()
   end
 
   defp stream do
@@ -36,12 +43,6 @@ defmodule FleetPulse.GrpcDrainTest do
     assert GrpcDrain.left() == :ok
   end
 
-  test "says so at boot when the listener it would suspend is not there" do
-    log = capture_log(fn -> start_supervised!(GrpcDrain) end)
-
-    assert log =~ "no ranch listener named FleetPulse.GrpcEndpoint"
-  end
-
   test "holds the count of the calls currently running" do
     start_drain()
 
@@ -53,6 +54,14 @@ defmodule FleetPulse.GrpcDrainTest do
     end)
 
     assert GrpcDrain.in_flight() == 0
+  end
+
+  test "refusing new calls is idempotent, so the suspender and the drain can both do it" do
+    start_drain()
+
+    assert GrpcDrain.refuse_new_calls() == :ok
+    assert GrpcDrain.refuse_new_calls() == :ok
+    assert GrpcDrain.draining?()
   end
 
   describe "once draining" do
@@ -88,14 +97,24 @@ defmodule FleetPulse.GrpcDrainTest do
   end
 
   test "reports what it could not wait out rather than claiming a clean drain" do
-    Application.put_env(:fleet_pulse, GrpcDrain, budget_ms: 100)
-    on_exit(fn -> Application.put_env(:fleet_pulse, GrpcDrain, budget_ms: 5_000) end)
-
-    start_drain()
+    start_drain(100)
     GrpcDrain.entered()
 
     log = capture_log(fn -> stop_supervised!(GrpcDrain) end)
 
     assert log =~ "drain budget expired with 1 call(s) still in flight"
+  end
+
+  test "says the count is nonsense rather than counting down from below zero" do
+    start_drain(2_000)
+    GrpcDrain.left()
+
+    assert GrpcDrain.in_flight() == -1
+
+    {elapsed_us, log} = :timer.tc(fn -> capture_log(fn -> stop_supervised!(GrpcDrain) end) end)
+
+    assert log =~ "gRPC in-flight count is -1, which cannot be a number of calls"
+    refute log =~ "call(s) still in flight"
+    assert elapsed_us < 500_000, "waited #{div(elapsed_us, 1000)}ms on a count it cannot trust"
   end
 end
