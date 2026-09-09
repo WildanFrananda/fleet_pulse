@@ -14,7 +14,10 @@ config :fleet_pulse, FleetPulseWeb.Endpoint,
     layout: false
   ],
   pubsub_server: FleetPulse.PubSub,
-  live_view: [signing_salt: "5WcZjYkx"]
+  live_view: [signing_salt: "5WcZjYkx"],
+  http: [thousand_island_options: [shutdown_timeout: 10_000]]
+
+config :fleet_pulse, FleetPulse.GrpcDrain, budget_ms: 5_000
 
 config :fleet_pulse, FleetPulse.Tracking.PersistenceBatcher,
   enabled: true,
@@ -67,9 +70,7 @@ config :tailwind,
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
 
-config :logger, :default_formatter,
-  format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id]
+config :logger, :default_formatter, metadata: :all
 
 config :phoenix, :json_library, Jason
 

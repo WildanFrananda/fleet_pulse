@@ -23,6 +23,8 @@ end
 config :fleet_pulse, FleetPulseWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+config :logger, :default_formatter, format: {FleetPulse.Observability.LogFormatter, :format}
+
 case System.get_env("LOG_LEVEL") do
   nil ->
     :ok

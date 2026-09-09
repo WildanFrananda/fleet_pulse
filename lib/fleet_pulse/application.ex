@@ -8,6 +8,7 @@ defmodule FleetPulse.Application do
   def start(_type, _args) do
     children =
       [
+        FleetPulse.Observability.Metrics,
         FleetPulseWeb.Telemetry,
         FleetPulse.Repo,
         {DNSCluster, query: Application.get_env(:fleet_pulse, :dns_cluster_query) || :ignore},
@@ -40,7 +41,8 @@ defmodule FleetPulse.Application do
          port: grpc_port,
          start_server: true,
          adapter_opts: [cred: grpc_credentials()]},
-        GrpcReflection
+        GrpcReflection,
+        FleetPulse.GrpcDrain
       ]
     else
       []

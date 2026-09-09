@@ -57,7 +57,6 @@ config :fleet_pulse, FleetPulseWeb.Endpoint,
 # Enable dev routes for dashboard and mailbox
 config :fleet_pulse, dev_routes: true
 
-config :logger, :default_formatter, format: "[$level] $metadata$message\n"
 
 # Set a higher stacktrace during development. Avoid configuring such
 # in production as building large stacktraces may be expensive.
